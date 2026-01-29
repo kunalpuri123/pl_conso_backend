@@ -181,6 +181,16 @@ def is_na(val):
     s = str(val).strip().lower()
     return s in {"", "n/a", "na", "null", "nan"}
 
+def raw_str(val):
+    if val is None:
+        return ""
+    if isinstance(val, float) and pd.isna(val):
+        return ""
+    return str(val)
+
+def visible(val):
+    return repr(val)
+
 # ================= STRICT INPUT CHECK =================
 def exists_in_ip_verbose(val, ip_set, is_url=False):
     if is_na(val):
