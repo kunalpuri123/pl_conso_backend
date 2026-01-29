@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pandas
+numpy
+requests
+openpyxl
+python-multipart
+python-dotenv
+supabase
+google-generativeai
+reportlab
