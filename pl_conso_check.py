@@ -147,6 +147,9 @@ if "scope" not in master_df.columns and "scope_name" in master_df.columns:
 
 print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df)} | Master Rows: {len(master_df)}")
 
+USE_DIFFLIB = len(df) <= 8000
+print(f"Difflib enabled: {USE_DIFFLIB}", flush=True)
+
 # ================= extra column =================
 # ================= SCHEMA VALIDATION (EXTRA COLUMN CHECK) =================
 
@@ -228,9 +231,11 @@ def exists_in_ip_verbose(val, ip_set, is_url=False):
     if v in ip_set:
         return "PASS", "", ""
 
-    # suggestion (debug only)
-    close = difflib.get_close_matches(v, list(ip_set), n=1, cutoff=0.6)
-    close = close[0] if close else ""
+    if USE_DIFFLIB:
+        close = difflib.get_close_matches(v, list(ip_set), n=1, cutoff=0.6)
+        close = close[0] if close else ""
+    else:
+        close = ""
 
     return "FAIL", visible(raw), visible(close)
 
@@ -522,31 +527,40 @@ print(f"🔍 Total Missing URLs Found: {len(missing_urls_df)}")
 
 # ================= OUTPUT =================
 # ================= OUTPUT =================
-
 print("Starting Excel write...", flush=True)
-
 
 output_file = OUTPUT_FILE
 
-with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-    df.to_csv(output_file.with_suffix(".csv"), index=False)
+# -------- CSV (fast full dump) --------
+df.to_csv(output_file.with_suffix(".csv"), index=False)
+
+# -------- Excel (FAST writer) --------
+with pd.ExcelWriter(
+    output_file,
+    engine="xlsxwriter",
+    engine_kwargs={"options": {"strings_to_urls": False}}   # faster + avoids auto hyperlink parsing
+) as writer:
+
+    # Main comparison sheet
+    df.to_excel(writer, sheet_name="PL_Data", index=False)
+
+    # Pivot sheet
     pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
 
-    if not missing_urls_df.empty:
-        missing_urls_df.to_excel(writer, sheet_name="Missing_URLs", index=False)
-    else:
-        pd.DataFrame(columns=["scope", "missing_url"]).to_excel(
-            writer, sheet_name="Missing_URLs", index=False
-        )
+    # Missing URLs
+    missing_urls_df.to_excel(
+        writer,
+        sheet_name="Missing_URLs",
+        index=False
+    )
 
-    if not extra_columns_df.empty:
-        extra_columns_df.to_excel(writer, sheet_name="Extra_Columns", index=False)
-    else:
-        pd.DataFrame(columns=["extra_column_name"]).to_excel(
-            writer, sheet_name="Extra_Columns", index=False
-        )
+    # Extra columns
+    extra_columns_df.to_excel(
+        writer,
+        sheet_name="Extra_Columns",
+        index=False
+    )
 
 print("Finished Excel write", flush=True)
-
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
