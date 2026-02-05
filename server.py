@@ -1,17 +1,23 @@
 from fastapi import FastAPI, BackgroundTasks
-from pdf_report_generator import generate_pdf_from_ai_report
-import tempfile
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
+
 import subprocess
+import tempfile
 import os
 import shutil
-from fastapi.middleware.cors import CORSMiddleware
+
+from pdf_report_generator import generate_pdf_from_ai_report
 from ai_analyzer import analyze_output_with_gemini
 
-# ------------------ Load ENV ------------------
+
+# =========================================================
+# ENV
+# =========================================================
 
 load_dotenv()
 
@@ -23,7 +29,10 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ------------------ App ------------------
+
+# =========================================================
+# APP
+# =========================================================
 
 app = FastAPI()
 
@@ -38,50 +47,75 @@ app.add_middleware(
 BASE_WORKDIR = "./work"
 os.makedirs(BASE_WORKDIR, exist_ok=True)
 
-# ------------------ Helpers ------------------
 
-def log(run_id, level, message):
+# =========================================================
+# HELPERS
+# =========================================================
+
+def log(run_id: str, level: str, message: str):
+    """
+    Insert one log row into DB
+    """
+    if not message or message.strip() == "":
+        return
+
     supabase.table("run_logs").insert({
         "run_id": run_id,
         "level": level,
-        "message": message
+        "message": message.strip()
     }).execute()
+
 
 def download_from_storage(bucket, storage_path, local_path):
     data = supabase.storage.from_(bucket).download(storage_path)
     with open(local_path, "wb") as f:
         f.write(data)
 
+
 def upload_to_storage(bucket, storage_path, local_path):
     with open(local_path, "rb") as f:
         supabase.storage.from_(bucket).upload(storage_path, f)
 
-# ------------------ Main Runner ------------------
+
+# =========================================================
+# MAIN EXECUTION
+# =========================================================
 
 def execute_run(run_id: str):
+
     run_dir = os.path.join(BASE_WORKDIR, f"run_{run_id}")
     os.makedirs(run_dir, exist_ok=True)
 
     try:
+        # ---------------------------------------
         # 1. Mark running
+        # ---------------------------------------
         supabase.table("runs").update({
             "status": "running",
             "start_time": datetime.utcnow().isoformat()
         }).eq("id", run_id).execute()
 
-        run = supabase.table("runs").select("*").eq("id", run_id).single().execute().data
+        run = (
+            supabase.table("runs")
+            .select("*")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
 
         log(run_id, "INFO", "Run started")
 
-        # 2. Read file paths from DB
         op_path = run["op_filename"]
         ip_path = run["ip_filename"]
         master_path = run["master_filename"]
 
         if not op_path or not ip_path or not master_path:
-            raise Exception("One or more input file paths are missing in DB")
+            raise Exception("Missing input files in DB")
 
-        # 3. Prepare local paths
+        # ---------------------------------------
+        # 2. Prepare paths
+        # ---------------------------------------
         op_local = os.path.join(run_dir, os.path.basename(op_path))
         ip_local = os.path.join(run_dir, os.path.basename(ip_path))
         master_local = os.path.join(run_dir, os.path.basename(master_path))
@@ -91,7 +125,9 @@ def execute_run(run_id: str):
         log(run_id, "INFO", f"IP file: {ip_path}")
         log(run_id, "INFO", f"MASTER file: {master_path}")
 
-        # 4. Download files
+        # ---------------------------------------
+        # 3. Download
+        # ---------------------------------------
         log(run_id, "INFO", "Downloading input files")
 
         download_from_storage("input-files", op_path, op_local)
@@ -100,19 +136,32 @@ def execute_run(run_id: str):
 
         log(run_id, "INFO", "All files downloaded successfully")
 
-        # 5. Run script
+        # ---------------------------------------
+        # 4. Run script (REALTIME LOGGING)
+        # ---------------------------------------
         log(run_id, "INFO", "Starting Python script")
 
-       process = subprocess.Popen(
-        ["python", "pl_conso_check.py", op_local, ip_local, master_local, output_local],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1)
+        process = subprocess.Popen(
+            [
+                "python",
+                "-u",                     # 🔥 VERY IMPORTANT → unbuffered
+                "pl_conso_check.py",
+                op_local,
+                ip_local,
+                master_local,
+                output_local,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
 
-        for line in process.stdout:
-            log(run_id, "INFO", line.strip())
-        
+        # 🔥 STREAM LIVE LOGS
+        for line in iter(process.stdout.readline, ''):
+            log(run_id, "INFO", line.rstrip())
+
+        process.stdout.close()
         process.wait()
 
         if process.returncode != 0:
@@ -120,9 +169,11 @@ def execute_run(run_id: str):
 
         log(run_id, "INFO", "Script finished successfully")
 
-        # 6. AI Analysis
+        # ---------------------------------------
+        # 5. AI analysis
+        # ---------------------------------------
         try:
-            log(run_id, "INFO", "Sending output to LLM for AI analysis")
+            log(run_id, "INFO", "Sending output to AI")
 
             ai_report = analyze_output_with_gemini(output_local)
 
@@ -134,28 +185,28 @@ def execute_run(run_id: str):
                 "verdict": ai_report.get("verdict")
             }).execute()
 
-            log(run_id, "INFO", "AI report generated and saved")
+            log(run_id, "INFO", "AI report generated")
 
         except Exception as e:
-            log(run_id, "ERROR", f"AI analysis failed: {str(e)}")
+            log(run_id, "ERROR", f"AI failed: {str(e)}")
 
-        # 7. Upload output
+        # ---------------------------------------
+        # 6. Upload result
+        # ---------------------------------------
         output_filename = f"{run['run_uuid']}.xlsx"
-        storage_path = output_filename
 
-        log(run_id, "INFO", "Uploading output to run-outputs bucket")
+        upload_to_storage("run-outputs", output_filename, output_local)
 
-        upload_to_storage("run-outputs", storage_path, output_local)
-
-        # 8. Insert into run_files table
         supabase.table("run_files").insert({
             "run_id": run_id,
             "filename": output_filename,
             "file_type": "FINAL_OUTPUT",
-            "storage_path": storage_path
+            "storage_path": output_filename
         }).execute()
 
-        # 9. Mark completed
+        # ---------------------------------------
+        # 7. Complete
+        # ---------------------------------------
         supabase.table("runs").update({
             "status": "completed",
             "end_time": datetime.utcnow().isoformat()
@@ -174,87 +225,76 @@ def execute_run(run_id: str):
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
 
-# ------------------ API ------------------
+
+# =========================================================
+# API
+# =========================================================
 
 @app.post("/run/{run_id}")
 def start_run(run_id: str, bg: BackgroundTasks):
     bg.add_task(execute_run, run_id)
     return {"status": "started"}
 
+
 @app.post("/run/{run_id}/rerun")
 def rerun(run_id: str, bg: BackgroundTasks):
-    # 1. Load old run
-    old_res = supabase.table("runs").select("*").eq("id", run_id).execute()
 
-    if not old_res.data:
-        return {"error": "Run not found"}
+    old = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
 
-    old = old_res.data[0]
+    new = (
+        supabase.table("runs")
+        .insert({
+            "user_id": old["user_id"],
+            "project_id": old["project_id"],
+            "site_id": old["site_id"],
+            "scope": old["scope"],
+            "op_filename": old["op_filename"],
+            "ip_filename": old["ip_filename"],
+            "master_filename": old["master_filename"],
+            "status": "pending"
+        })
+        .execute()
+        .data[0]
+    )
 
-    # 2. Create new run with SAME CONFIG
-    insert_res = supabase.table("runs").insert({
-        "user_id": old["user_id"],
-        "project_id": old["project_id"],
-        "site_id": old["site_id"],
-        "scope": old["scope"],
-        "op_filename": old["op_filename"],
-        "ip_filename": old["ip_filename"],
-        "master_filename": old["master_filename"],
-        "status": "pending"
-    }).execute()
-
-    new = insert_res.data[0]
-
-    # 3. Execute new run
     bg.add_task(execute_run, new["id"])
 
-    return {
-        "status": "rerun_started",
-        "old_run_id": run_id,
-        "new_run_id": new["id"]
-    }
+    return {"status": "rerun_started"}
+
 
 @app.get("/run/{run_id}/ai-report")
 def get_ai_report(run_id: str):
-    data = supabase.table("run_ai_reports").select("*").eq("run_id", run_id).single().execute().data
-    return data
+    return (
+        supabase.table("run_ai_reports")
+        .select("*")
+        .eq("run_id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
 
 @app.get("/run/{run_id}/ai-report-pdf")
 def download_ai_report_pdf(run_id: str):
-    row = supabase.table("run_ai_reports").select("*").eq("run_id", run_id).single().execute().data
 
-    if not row:
-        return {"error": "AI report not found"}
-
-    ai_report = row["report_json"]
-
-    tmp_path = f"/tmp/ai_report_{run_id}.pdf"
-
-    generate_pdf_from_ai_report(ai_report, tmp_path)
-
-    return FileResponse(
-        tmp_path,
-        media_type="application/pdf",
-        filename=f"AI_Report_{run_id}.pdf"
+    row = (
+        supabase.table("run_ai_reports")
+        .select("*")
+        .eq("run_id", run_id)
+        .single()
+        .execute()
+        .data
     )
 
-@app.get("/admin/runs-with-ai")
-def get_runs_with_ai():
-    res = supabase.table("runs").select("""
-        id,
-        run_uuid,
-        status,
-        created_at,
-        run_ai_reports (
-            verdict,
-            accuracy,
-            summary,
-            report_json
-        )
-    """).execute()
+    tmp = f"/tmp/{run_id}.pdf"
 
-    return res.data
+    generate_pdf_from_ai_report(row["report_json"], tmp)
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    return FileResponse(tmp, media_type="application/pdf")
