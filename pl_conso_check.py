@@ -165,7 +165,7 @@ if "scope" not in master_df.columns and "scope_name" in master_df.columns:
 
 print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df)} | Master Rows: {len(master_df)}")
 
-USE_DIFFLIB = len(df) <= 8000
+USE_DIFFLIB = len(df) <= 13000
 # USE_DIFFLIB = True
 print(f"Difflib enabled: {USE_DIFFLIB}", flush=True)
 
