@@ -10,6 +10,24 @@ import difflib
 
 print("=== PL CONSO AUTOMATION STARTED ===")
 
+def closest_token_match(value, candidates):
+    val_tokens = set(normalize_text(value).split())
+
+    best = ""
+    best_score = 0
+
+    for c in candidates:
+        cand_tokens = set(normalize_text(c).split())
+
+        score = len(val_tokens & cand_tokens)  # word overlap
+
+        if score > best_score:
+            best_score = score
+            best = c
+
+    return best
+
+
 # ================= ARGUMENT SUPPORT (NEW) =================
 if len(sys.argv) != 5:
     print("Usage: python pl_conso_check.py <OP_FILE> <IP_FILE> <MASTER_FILE> <OUTPUT_FILE>")
@@ -148,6 +166,7 @@ if "scope" not in master_df.columns and "scope_name" in master_df.columns:
 print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df)} | Master Rows: {len(master_df)}")
 
 USE_DIFFLIB = len(df) <= 8000
+# USE_DIFFLIB = True
 print(f"Difflib enabled: {USE_DIFFLIB}", flush=True)
 
 # ================= extra column =================
@@ -433,9 +452,34 @@ print("Starting column checks...", flush=True)
 
 
 # ================= COLUMN INPUT VALIDATION =================
+# def apply_check(col, ip_key, is_url=False):
+#     out = df[col].apply(lambda x: exists_in_ip_verbose(x, ip_sets[ip_key], is_url=is_url))
+#     df[f"{col}_ip_check"], df[f"{col}_missing"], df[f"{col}_closest"] = zip(*out)
+
 def apply_check(col, ip_key, is_url=False):
-    out = df[col].apply(lambda x: exists_in_ip_verbose(x, ip_sets[ip_key], is_url=is_url))
-    df[f"{col}_ip_check"], df[f"{col}_missing"], df[f"{col}_closest"] = zip(*out)
+    valid_set = ip_sets[ip_key]
+
+    # ---------- STEP 1: FAST PASS/FAIL (vectorized) ----------
+    if is_url:
+        series = df[col].apply(normalize_url_for_compare)
+    else:
+        series = df[col].astype(str).str.strip()
+
+    mask_fail = ~series.isin(valid_set)
+
+    df[f"{col}_ip_check"] = np.where(mask_fail, "FAIL", "PASS")
+    df[f"{col}_missing"] = ""
+    df[f"{col}_closest"] = ""
+
+    # ---------- STEP 2: difflib ONLY for FAILED rows ----------
+    failed_idx = df.index[mask_fail]
+
+    for i in failed_idx:
+        val = series.iloc[i]
+
+        close = difflib.get_close_matches(val, valid_set, n=1, cutoff=0.6)
+        df.at[i, f"{col}_missing"] = val
+        df.at[i, f"{col}_closest"] = close[0] if close else ""
 
 apply_check("keywords", "keywords")
 apply_check("purl", "purl", is_url=True)
@@ -480,15 +524,33 @@ def build_failure_reason(row):
         reasons.append("evidence_url not valid or mismatch with page")
     return " | ".join(dict.fromkeys(reasons))
 
-failure_cols = [
-    col for col in CHECK_COLUMNS if col in df.columns
-]
+# ================= FAST + DETAILED FAILURE REASON =================
 
-mask = df[failure_cols].eq("FAIL").any(axis=1)
+reasons = []
 
-df["failure_reason"] = np.where(mask, "Validation Failed", "")
+for col, msg in FAILURE_MESSAGE_MAP.items():
+    if col in df.columns:
+        reasons.append(np.where(df[col].eq("FAIL"), msg, ""))
 
-df["overall_status"] = df["failure_reason"].apply(lambda x: "PASS" if x == "" else "FAIL")
+# evidence url check
+if "evidence_url_validation" in df.columns:
+    reasons.append(
+        np.where(
+            df["evidence_url_validation"].isin(["NOT_FOUND", "ERROR", "MISSING"]),
+            "evidence_url not valid or mismatch with page",
+            ""
+        )
+    )
+
+reason_df = pd.DataFrame(reasons).T
+
+df["failure_reason"] = reason_df.apply(
+    lambda x: " | ".join(filter(None, x)),
+    axis=1
+)
+
+df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
+
 
 # Move failure_reason to end
 cols = [c for c in df.columns if c != "failure_reason"] + ["failure_reason"]
