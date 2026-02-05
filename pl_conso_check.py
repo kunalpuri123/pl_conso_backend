@@ -475,7 +475,14 @@ def build_failure_reason(row):
         reasons.append("evidence_url not valid or mismatch with page")
     return " | ".join(dict.fromkeys(reasons))
 
-df["failure_reason"] = df.apply(build_failure_reason, axis=1)
+failure_cols = [
+    col for col in CHECK_COLUMNS if col in df.columns
+]
+
+mask = df[failure_cols].eq("FAIL").any(axis=1)
+
+df["failure_reason"] = np.where(mask, "Validation Failed", "")
+
 df["overall_status"] = df["failure_reason"].apply(lambda x: "PASS" if x == "" else "FAIL")
 
 # Move failure_reason to end
@@ -522,7 +529,7 @@ print("Starting Excel write...", flush=True)
 output_file = OUTPUT_FILE
 
 with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-    df.to_excel(writer, sheet_name="PL_Data", index=False)
+    df.to_csv(output_file.with_suffix(".csv"), index=False)
     pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
 
     if not missing_urls_df.empty:
