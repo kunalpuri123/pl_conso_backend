@@ -411,7 +411,15 @@ url_status_map = {}
 
 with ThreadPoolExecutor(max_workers=20) as executor:
     futures = {executor.submit(check_evidence_url, url): url for url in unique_urls}
+    
+    completed = 0
+    total = len(futures)
+
     for f in as_completed(futures):
+        completed += 1
+        if completed % 100 == 0:
+            print(f"Checked {completed}/{total} URLs", flush=True)
+
         url_status_map[futures[f]] = f.result()
 
 df["evidence_url_validation"] = df["evidence_url"].map(url_status_map)
