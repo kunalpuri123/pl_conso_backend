@@ -459,28 +459,40 @@ print("Starting column checks...", flush=True)
 def apply_check(col, ip_key, is_url=False):
     valid_set = ip_sets[ip_key]
 
-    # ---------- STEP 1: FAST PASS/FAIL (vectorized) ----------
     if is_url:
         series = df[col].apply(normalize_url_for_compare)
     else:
         series = df[col].astype(str).str.strip()
 
-    mask_fail = ~series.isin(valid_set)
+    # -------------------------
+    # STEP 0: detect NA first
+    # -------------------------
+    na_mask = series.apply(is_na)
 
-    df[f"{col}_ip_check"] = np.where(mask_fail, "FAIL", "PASS")
+    # -------------------------
+    # STEP 1: PASS for NA rows
+    # -------------------------
+    df[f"{col}_ip_check"] = "PASS"
     df[f"{col}_missing"] = ""
     df[f"{col}_closest"] = ""
 
-    # ---------- STEP 2: difflib ONLY for FAILED rows ----------
-    failed_idx = df.index[mask_fail]
+    # -------------------------
+    # STEP 2: only check NON-NA rows
+    # -------------------------
+    check_mask = ~na_mask
 
-    for i in failed_idx:
-        val = series.iloc[i]
+    mask_fail = check_mask & (~series.isin(valid_set))
 
-        df.at[i, f"{col}_missing"] = val
+    df.loc[mask_fail, f"{col}_ip_check"] = "FAIL"
 
-        if USE_DIFFLIB:
+    # -------------------------
+    # STEP 3: difflib only for FAIL rows
+    # -------------------------
+    if USE_DIFFLIB:
+        for i in df.index[mask_fail]:
+            val = series.iloc[i]
             close = difflib.get_close_matches(val, valid_set, n=1, cutoff=0.6)
+            df.at[i, f"{col}_missing"] = val
             df.at[i, f"{col}_closest"] = close[0] if close else ""
 
 
