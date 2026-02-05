@@ -464,35 +464,29 @@ def apply_check(col, ip_key, is_url=False):
     else:
         series = df[col].astype(str).str.strip()
 
-    # -------------------------
-    # STEP 0: detect NA first
-    # -------------------------
     na_mask = series.apply(is_na)
 
-    # -------------------------
-    # STEP 1: PASS for NA rows
-    # -------------------------
     df[f"{col}_ip_check"] = "PASS"
     df[f"{col}_missing"] = ""
     df[f"{col}_closest"] = ""
 
-    # -------------------------
-    # STEP 2: only check NON-NA rows
-    # -------------------------
     check_mask = ~na_mask
-
     mask_fail = check_mask & (~series.isin(valid_set))
 
     df.loc[mask_fail, f"{col}_ip_check"] = "FAIL"
 
     # -------------------------
-    # STEP 3: difflib only for FAIL rows
+    # ALWAYS fill missing
+    # -------------------------
+    df.loc[mask_fail, f"{col}_missing"] = series[mask_fail]
+
+    # -------------------------
+    # difflib only optionally
     # -------------------------
     if USE_DIFFLIB:
         for i in df.index[mask_fail]:
-            val = series.iloc[i]
+            val = series.loc[i]   # ✅ FIXED
             close = difflib.get_close_matches(val, valid_set, n=1, cutoff=0.6)
-            df.at[i, f"{col}_missing"] = val
             df.at[i, f"{col}_closest"] = close[0] if close else ""
 
 
