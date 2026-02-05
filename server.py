@@ -103,17 +103,20 @@ def execute_run(run_id: str):
         # 5. Run script
         log(run_id, "INFO", "Starting Python script")
 
-        result = subprocess.run(
-            ["python", "pl_conso_check.py", op_local, ip_local, master_local, output_local],
-            capture_output=True,
-            text=True
-        )
+       process = subprocess.Popen(
+        ["python", "pl_conso_check.py", op_local, ip_local, master_local, output_local],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1)
 
-        if result.stdout:
-            log(run_id, "INFO", result.stdout)
+        for line in process.stdout:
+            log(run_id, "INFO", line.strip())
+        
+        process.wait()
 
-        if result.returncode != 0:
-            raise Exception(result.stderr)
+        if process.returncode != 0:
+            raise Exception("Script failed")
 
         log(run_id, "INFO", "Script finished successfully")
 
