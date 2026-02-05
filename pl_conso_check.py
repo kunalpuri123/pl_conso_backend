@@ -104,15 +104,37 @@ if ip_df is None or ip_df.empty:
     print("❌ IP file is empty or could not be read")
     sys.exit(1)
 
-# ================= BUILD IP URL MAP PER SCOPE =================
+# =========================================================
+# CONSOLIDATED INPUT → FILTER ONLY REQUIRED SCOPES
+# =========================================================
+
+# normalize scope column
+if "scope" not in ip_df.columns and "scope_name" in ip_df.columns:
+    ip_df = ip_df.rename(columns={"scope_name": "scope"})
+
+if "scope" not in ip_df.columns:
+    print("❌ IP file missing 'scope' column")
+    sys.exit(1)
+
+# filter only scopes that appear in OP (performance boost)
+ip_df = ip_df[ip_df["scope"].isin(scopes_in_output)]
+
+print(f"✅ IP rows after scope filtering: {len(ip_df)}")
+
+
+# =========================================================
+# BUILD IP URL MAP PER SCOPE (correct way)
+# =========================================================
+
 ip_scope_to_urls = {}
 
 for _, r in ip_df.iterrows():
-    scope = str(r.get("__scope__")).strip()
+    scope = str(r.get("scope")).strip()   # ✅ correct
     url = str(r.get("url")).strip()
 
-    if url and str(url).strip().lower() not in {"", "n/a", "na", "null", "nan"}:
+    if url and url.lower() not in {"", "n/a", "na", "null", "nan"}:
         ip_scope_to_urls.setdefault(scope, set()).add(url)
+
 
 # ================= NORMALIZE COLUMN NAMES =================
 df.columns = [c.strip().lower() for c in df.columns]
