@@ -298,3 +298,7 @@ def download_ai_report_pdf(run_id: str):
     generate_pdf_from_ai_report(row["report_json"], tmp)
 
     return FileResponse(tmp, media_type="application/pdf")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
