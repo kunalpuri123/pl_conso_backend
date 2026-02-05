@@ -477,9 +477,12 @@ def apply_check(col, ip_key, is_url=False):
     for i in failed_idx:
         val = series.iloc[i]
 
-        close = difflib.get_close_matches(val, valid_set, n=1, cutoff=0.6)
         df.at[i, f"{col}_missing"] = val
-        df.at[i, f"{col}_closest"] = close[0] if close else ""
+
+        if USE_DIFFLIB:
+            close = difflib.get_close_matches(val, valid_set, n=1, cutoff=0.6)
+            df.at[i, f"{col}_closest"] = close[0] if close else ""
+
 
 apply_check("keywords", "keywords")
 apply_check("purl", "purl", is_url=True)
