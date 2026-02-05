@@ -424,6 +424,9 @@ with ThreadPoolExecutor(max_workers=20) as executor:
 
 df["evidence_url_validation"] = df["evidence_url"].map(url_status_map)
 
+print("Starting column checks...", flush=True)
+
+
 # ================= COLUMN INPUT VALIDATION =================
 def apply_check(col, ip_key, is_url=False):
     out = df[col].apply(lambda x: exists_in_ip_verbose(x, ip_sets[ip_key], is_url=is_url))
@@ -478,6 +481,8 @@ df["overall_status"] = df["failure_reason"].apply(lambda x: "PASS" if x == "" el
 # Move failure_reason to end
 cols = [c for c in df.columns if c != "failure_reason"] + ["failure_reason"]
 df = df[cols]
+print("Finished column checks", flush=True)
+
 
 # ================= FIND MISSING URLS (IN IP BUT NOT IN OP) =================
 
@@ -511,6 +516,9 @@ print(f"🔍 Total Missing URLs Found: {len(missing_urls_df)}")
 # ================= OUTPUT =================
 # ================= OUTPUT =================
 
+print("Starting Excel write...", flush=True)
+
+
 output_file = OUTPUT_FILE
 
 with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
@@ -530,6 +538,8 @@ with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
         pd.DataFrame(columns=["extra_column_name"]).to_excel(
             writer, sheet_name="Extra_Columns", index=False
         )
+
+print("Finished Excel write", flush=True)
 
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
