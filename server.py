@@ -79,7 +79,10 @@ def download_from_storage(bucket, storage_path, local_path):
 
 def upload_to_storage(bucket, storage_path, local_path):
     with open(local_path, "rb") as f:
-        supabase.storage.from_(bucket).upload(storage_path, f)
+        res = supabase.storage.from_(bucket).upload(storage_path, f)
+
+    print("UPLOAD RESULT:", res)   # 🔥 add this
+
 
 
 # =========================================================
