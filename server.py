@@ -269,7 +269,7 @@ def execute_input_run(run_id: str):
         # 3. download files
         # -----------------------------
         download_from_storage(
-            "input-creation-business-file",
+            "input-creation-bussiness-file",
             run["op_filename"],
             biz_local
         )
