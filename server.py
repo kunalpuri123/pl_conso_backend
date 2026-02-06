@@ -444,11 +444,13 @@ def download_ai_report_pdf(run_id: str):
 
     return FileResponse(tmp, media_type="application/pdf")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
 @app.post("/input-run/{run_id}")
 def start_input_run(run_id: str, bg: BackgroundTasks):
     bg.add_task(execute_input_run, run_id)
     return {"status": "started"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
