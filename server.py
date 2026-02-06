@@ -395,17 +395,17 @@ def execute_input_run(run_id: str):
     except Exception as e:
         log(run_id, "ERROR", str(e))
 
-    current = (
-        supabase.table("runs")
-        .select("status")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
+        current = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
 
-    if current["status"] != "cancelled":
-        supabase.table("runs").update({
+        if current["status"] != "cancelled":
+            supabase.table("runs").update({
             "status": "failed",
             "end_time": datetime.utcnow().isoformat()
         }).eq("id", run_id).execute()
