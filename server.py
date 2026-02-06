@@ -38,11 +38,16 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://pl-conso-frontend.vercel.app"],
+    allow_origins=[
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://pl-conso-frontend.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 BASE_WORKDIR = "./work"
 os.makedirs(BASE_WORKDIR, exist_ok=True)
@@ -225,6 +230,146 @@ def execute_run(run_id: str):
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
 
+def execute_input_run(run_id: str):
+
+    run_dir = os.path.join(BASE_WORKDIR, f"input_run_{run_id}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    try:
+        # -----------------------------
+        # 1. mark running
+        # -----------------------------
+        supabase.table("runs").update({
+            "status": "running",
+            "start_time": datetime.utcnow().isoformat()
+        }).eq("id", run_id).execute()
+
+        run = (
+            supabase.table("runs")
+            .select("*")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
+
+        log(run_id, "INFO", "Input creation started")
+
+        # -----------------------------
+        # 2. local paths
+        # -----------------------------
+        biz_local = os.path.join(run_dir, "biz.xlsx")
+        crawl_local = os.path.join(run_dir, "crawl.xlsx")
+        template_local = os.path.join(run_dir, "template.xlsx")
+        output_local = os.path.join(run_dir, "merged_output.xlsx")
+        zip_local = os.path.join(run_dir, "all_tsv_files.zip")
+
+
+        # -----------------------------
+        # 3. download files
+        # -----------------------------
+        download_from_storage(
+            "input-creation-business-file",
+            run["op_filename"],
+            biz_local
+        )
+
+        download_from_storage(
+            "input-creation-crawl-team-file",
+            run["ip_filename"],
+            crawl_local
+        )
+
+        download_from_storage(
+            "input-creation-final-template",
+            run["master_filename"],
+            template_local
+        )
+
+        log(run_id, "INFO", "All files downloaded")
+
+        # -----------------------------
+        # 4. run python script
+        # -----------------------------
+        process = subprocess.Popen(
+            [
+                "python",
+                "-u",
+                "input_creation_script.py",
+                biz_local,
+                crawl_local,
+                template_local,
+                output_local
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+
+        for line in process.stdout:
+            log(run_id, "INFO", line.rstrip())
+
+        process.wait()
+
+        if process.returncode != 0:
+            raise Exception("Script failed")
+
+        # -----------------------------
+        # 5. upload result
+        # -----------------------------
+        output_filename = f"{run['run_uuid']}.xlsx"
+
+        upload_to_storage(
+            "input-creation-merged-output",
+            output_filename,
+            output_local
+        )
+
+        supabase.table("run_files").insert({
+            "run_id": run_id,
+            "filename": output_filename,
+            "file_type": "FINAL_OUTPUT",
+            "storage_path": output_filename
+        }).execute()
+
+        # -----------------------------
+        # Upload TSV ZIP (ADD THIS)
+        # -----------------------------
+        zip_filename = f"{run['run_uuid']}_tsv.zip"
+
+        upload_to_storage(
+            "input-creation-merged-output",
+             zip_filename,
+             zip_local
+        )
+
+        supabase.table("run_files").insert({
+            "run_id": run_id,
+            "filename": zip_filename,
+            "file_type": "TSV_ZIP",
+            "storage_path": zip_filename
+        }).execute()
+
+
+        # -----------------------------
+        # 6. mark completed
+        # -----------------------------
+        supabase.table("runs").update({
+            "status": "completed",
+            "end_time": datetime.utcnow().isoformat()
+        }).eq("id", run_id).execute()
+
+        log(run_id, "INFO", "Input creation completed")
+
+    except Exception as e:
+        log(run_id, "ERROR", str(e))
+
+        supabase.table("runs").update({
+            "status": "failed"
+        }).eq("id", run_id).execute()
+
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
 
 # =========================================================
 # API
@@ -302,3 +447,8 @@ def download_ai_report_pdf(run_id: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/input-run/{run_id}")
+def start_input_run(run_id: str, bg: BackgroundTasks):
+    bg.add_task(execute_input_run, run_id)
+    return {"status": "started"}
