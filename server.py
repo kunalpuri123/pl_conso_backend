@@ -490,6 +490,68 @@ def rerun_input(run_id: str, bg: BackgroundTasks):
 
     return {"status": "input_rerun_started"}
 
+# =========================================================
+# UNIVERSAL DELETE RUN (PL CONSO + PL INPUT)
+# =========================================================
+
+@app.delete("/runs/{run_id}")
+def delete_run(run_id: str):
+
+    run = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
+    if not run:
+        return {"error": "Run not found"}
+
+    # ❌ never delete completed
+    if run["status"] == "completed":
+        return {"error": "Completed runs cannot be deleted"}
+
+    # -----------------------------
+    # mark cancelled if running
+    # -----------------------------
+    if run["status"] == "running":
+        supabase.table("runs").update({
+            "status": "cancelled"
+        }).eq("id", run_id).execute()
+
+    # -----------------------------
+    # delete storage files
+    # -----------------------------
+    files = (
+        supabase.table("run_files")
+        .select("*")
+        .eq("run_id", run_id)
+        .execute()
+        .data
+    )
+
+    for f in files or []:
+        try:
+            supabase.storage.from_("run-outputs").remove([f["storage_path"]])
+        except:
+            pass
+
+        try:
+            supabase.storage.from_("input-creation-output").remove([f["storage_path"]])
+        except:
+            pass
+
+    # -----------------------------
+    # cleanup DB
+    # -----------------------------
+    supabase.table("run_logs").delete().eq("run_id", run_id).execute()
+    supabase.table("run_files").delete().eq("run_id", run_id).execute()
+    supabase.table("run_ai_reports").delete().eq("run_id", run_id).execute()
+    supabase.table("runs").delete().eq("id", run_id).execute()
+
+    return {"status": "deleted"}
 
 if __name__ == "__main__":
     import uvicorn
