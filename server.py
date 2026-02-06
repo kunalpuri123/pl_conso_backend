@@ -335,8 +335,15 @@ def execute_input_run(run_id: str):
 
         process.wait()
 
+        # 🔥 CANCELLED PROCESS (killed)
+        if process.returncode == -9:
+            log(run_id, "INFO", "Run cancelled by user")
+            return
+
+# real failure
         if process.returncode != 0:
-            raise Exception("Script failed")
+             raise Exception("Script failed")
+
 
         # -----------------------------
         # 5. upload result
@@ -386,11 +393,23 @@ def execute_input_run(run_id: str):
         log(run_id, "INFO", "Input creation completed")
 
     except Exception as e:
-        log(run_id, "ERROR", str(e))
+    log(run_id, "ERROR", str(e))
 
+    current = (
+        supabase.table("runs")
+        .select("status")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
+    if current["status"] != "cancelled":
         supabase.table("runs").update({
-            "status": "failed"
+            "status": "failed",
+            "end_time": datetime.utcnow().isoformat()
         }).eq("id", run_id).execute()
+
 
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
