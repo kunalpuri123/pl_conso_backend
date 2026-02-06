@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import os
 import shutil
+import signal
 
 from pdf_report_generator import generate_pdf_from_ai_report
 from ai_analyzer import analyze_output_with_gemini
@@ -164,6 +165,10 @@ def execute_run(run_id: str):
             universal_newlines=True,
             bufsize=1
         )
+        supabase.table("runs").update({
+    "process_pid": process.pid
+}).eq("id", run_id).execute()
+
 
         # 🔥 STREAM LIVE LOGS
         for line in iter(process.stdout.readline, ''):
@@ -308,6 +313,10 @@ def execute_input_run(run_id: str):
             stderr=subprocess.STDOUT,
             universal_newlines=True
         )
+        supabase.table("runs").update({
+    "process_pid": process.pid
+}).eq("id", run_id).execute()
+
 
         for line in process.stdout:
             log(run_id, "INFO", line.rstrip())
@@ -494,8 +503,9 @@ def rerun_input(run_id: str, bg: BackgroundTasks):
 # UNIVERSAL DELETE RUN (PL CONSO + PL INPUT)
 # =========================================================
 
-@app.delete("/runs/{run_id}")
-def delete_run(run_id: str):
+
+@app.post("/runs/{run_id}/cancel")
+def cancel_run(run_id: str):
 
     run = (
         supabase.table("runs")
@@ -509,21 +519,20 @@ def delete_run(run_id: str):
     if not run:
         return {"error": "Run not found"}
 
-    # ❌ never delete completed
-    if run["status"] == "completed":
-        return {"error": "Completed runs cannot be deleted"}
+    # -------------------------
+    # 1. HARD KILL PROCESS
+    # -------------------------
+    pid = run.get("process_pid")
 
-    # -----------------------------
-    # mark cancelled if running
-    # -----------------------------
-    if run["status"] == "running":
-        supabase.table("runs").update({
-            "status": "cancelled"
-        }).eq("id", run_id).execute()
+    if pid:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except:
+            pass
 
-    # -----------------------------
-    # delete storage files
-    # -----------------------------
+    # -------------------------
+    # 2. DELETE STORAGE FILES
+    # -------------------------
     files = (
         supabase.table("run_files")
         .select("*")
@@ -538,20 +547,23 @@ def delete_run(run_id: str):
         except:
             pass
 
-        try:
-            supabase.storage.from_("input-creation-output").remove([f["storage_path"]])
-        except:
-            pass
-
-    # -----------------------------
-    # cleanup DB
-    # -----------------------------
+    # -------------------------
+    # 3. CLEAN CHILD TABLES
+    # -------------------------
     supabase.table("run_logs").delete().eq("run_id", run_id).execute()
     supabase.table("run_files").delete().eq("run_id", run_id).execute()
     supabase.table("run_ai_reports").delete().eq("run_id", run_id).execute()
-    supabase.table("runs").delete().eq("id", run_id).execute()
 
-    return {"status": "deleted"}
+    # -------------------------
+    # 4. UPDATE STATUS ONLY
+    # -------------------------
+    supabase.table("runs").update({
+        "status": "cancelled",
+        "end_time": datetime.utcnow().isoformat(),
+        "process_pid": None
+    }).eq("id", run_id).execute()
+
+    return {"status": "cancelled"}
 
 if __name__ == "__main__":
     import uvicorn
