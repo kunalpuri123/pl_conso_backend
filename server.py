@@ -231,20 +231,20 @@ def execute_run(run_id: str):
         log(run_id, "ERROR", str(e))
 
         current = (
-    supabase.table("runs")
-    .select("status")
-    .eq("id", run_id)
-    .single()
-    .execute()
-    .data
-)
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
 
 # 🔥 only mark failed if NOT cancelled
-if current["status"] != "cancelled":
-    supabase.table("runs").update({
-        "status": "failed",
-        "end_time": datetime.utcnow().isoformat()
-    }).eq("id", run_id).execute()
+        if current["status"] != "cancelled":
+            supabase.table("runs").update({
+            "status": "failed",
+            "end_time": datetime.utcnow().isoformat()
+         }).eq("id", run_id).execute()
 
 
     finally:
