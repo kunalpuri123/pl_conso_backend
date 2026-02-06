@@ -323,7 +323,7 @@ def execute_input_run(run_id: str):
         output_filename = f"{run['run_uuid']}.xlsx"
 
         upload_to_storage(
-            "input-creation-merged-output",
+            "input-creation-output",
             output_filename,
             output_local
         )
@@ -341,7 +341,7 @@ def execute_input_run(run_id: str):
         zip_filename = f"{run['run_uuid']}_tsv.zip"
 
         upload_to_storage(
-            "input-creation-merged-output",
+            "input-creation-output",
              zip_filename,
              zip_local
         )
@@ -451,6 +451,44 @@ def download_ai_report_pdf(run_id: str):
 def start_input_run(run_id: str, bg: BackgroundTasks):
     bg.add_task(execute_input_run, run_id)
     return {"status": "started"}
+
+@app.post("/input-run/{run_id}/rerun")
+def rerun_input(run_id: str, bg: BackgroundTasks):
+
+    # get old run
+    old = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
+    # create new run row
+    new = (
+        supabase.table("runs")
+        .insert({
+            "user_id": old["user_id"],
+            "project_id": old["project_id"],
+            "site_id": old["site_id"],
+            "scope": old["scope"],
+            "op_filename": old["op_filename"],
+            "ip_filename": old["ip_filename"],
+            "master_filename": old["master_filename"],
+            "status": "pending",
+            "automation_slug": old["automation_slug"]
+
+        })
+        .execute()
+        .data[0]
+    )
+
+    # start INPUT execution
+    bg.add_task(execute_input_run, new["id"])
+
+    return {"status": "input_rerun_started"}
+
 
 if __name__ == "__main__":
     import uvicorn
