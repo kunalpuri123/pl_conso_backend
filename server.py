@@ -230,10 +230,22 @@ def execute_run(run_id: str):
     except Exception as e:
         log(run_id, "ERROR", str(e))
 
-        supabase.table("runs").update({
-            "status": "failed",
-            "end_time": datetime.utcnow().isoformat()
-        }).eq("id", run_id).execute()
+        current = (
+    supabase.table("runs")
+    .select("status")
+    .eq("id", run_id)
+    .single()
+    .execute()
+    .data
+)
+
+# 🔥 only mark failed if NOT cancelled
+if current["status"] != "cancelled":
+    supabase.table("runs").update({
+        "status": "failed",
+        "end_time": datetime.utcnow().isoformat()
+    }).eq("id", run_id).execute()
+
 
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
