@@ -331,7 +331,7 @@ def execute_input_run(run_id: str):
         supabase.table("run_files").insert({
             "run_id": run_id,
             "filename": output_filename,
-            "file_type": "FINAL_OUTPUT",
+            "file_type": "MERGED_OUTPUT",
             "storage_path": output_filename
         }).execute()
 
@@ -406,7 +406,8 @@ def rerun(run_id: str, bg: BackgroundTasks):
             "op_filename": old["op_filename"],
             "ip_filename": old["ip_filename"],
             "master_filename": old["master_filename"],
-            "status": "pending"
+            "status": "pending",
+             "automation_slug": old["automation_slug"]
         })
         .execute()
         .data[0]
