@@ -393,7 +393,7 @@ def execute_input_run(run_id: str):
         log(run_id, "INFO", "Input creation completed")
 
     except Exception as e:
-    log(run_id, "ERROR", str(e))
+        log(run_id, "ERROR", str(e))
 
     current = (
         supabase.table("runs")
