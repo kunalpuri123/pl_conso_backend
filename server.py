@@ -211,60 +211,49 @@ def execute_run(run_id: str):
         # ---------------------------------------
         # 6. Upload result
         # ---------------------------------------
-        output_filename = f"{run['run_uuid']}.xlsx"
+        filename = f"{run['run_uuid']}.xlsx"
 
-        upload_to_storage("run-outputs", output_filename, output_local)
+        upload_to_storage("run-outputs", filename, output_local)
 
         supabase.table("run_files").insert({
             "run_id": run_id,
-            "filename": output_filename,
+            "filename": filename,
             "file_type": "FINAL_OUTPUT",
-            "storage_path": output_filename
+            "storage_path": filename
         }).execute()
 
-        # ---------------------------------------
-        # 7. Complete
-        # ---------------------------------------
+        # -------------------------
+        # 8. complete
+        # -------------------------
         supabase.table("runs").update({
             "status": "completed",
-            "end_time": datetime.utcnow().isoformat()
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
         }).eq("id", run_id).execute()
 
-        log(run_id, "INFO", "Run completed successfully")
-
-    
     except Exception as e:
-    log(run_id, "ERROR", str(e))
+        log(run_id, "ERROR", str(e))
 
-    current = (
-        supabase.table("runs")
-        .select("status")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
+        current = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
 
-    # 🔥 NEVER override cancelled
-    if current and current["status"] == "cancelled":
-        return
-
-    supabase.table("runs").update({
-        "status": "failed",
-        "end_time": datetime.utcnow().isoformat()
-    }).eq("id", run_id).execute()
-
-# 🔥 only mark failed if NOT cancelled
-        if current["status"] != "cancelled":
+        # never override cancelled
+        if not current or current["status"] != "cancelled":
             supabase.table("runs").update({
-            "status": "failed",
-            "end_time": datetime.utcnow().isoformat()
-         }).eq("id", run_id).execute()
-
+                "status": "failed",
+                "end_time": datetime.utcnow().isoformat(),
+                "process_pid": None
+            }).eq("id", run_id).execute()
 
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
-
+        
 def execute_input_run(run_id: str):
 
     run_dir = os.path.join(BASE_WORKDIR, f"input_run_{run_id}")
@@ -407,29 +396,29 @@ def execute_input_run(run_id: str):
 
         log(run_id, "INFO", "Input creation completed")
 
-    except Exception as e:
-    log(run_id, "ERROR", str(e))
+        except Exception as e:
+        log(run_id, "ERROR", str(e))
 
-    current = (
-        supabase.table("runs")
-        .select("status")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
+        current = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
 
-    # 🔥 NEVER override cancelled
-    if current and current["status"] == "cancelled":
-        return
+        if current and current["status"] == "cancelled":
+            return
 
-    supabase.table("runs").update({
-        "status": "failed",
-        "end_time": datetime.utcnow().isoformat()
-    }).eq("id", run_id).execute()
+        supabase.table("runs").update({
+            "status": "failed",
+            "end_time": datetime.utcnow().isoformat()
+        }).eq("id", run_id).execute()
 
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
 
 # =========================================================
 # API
