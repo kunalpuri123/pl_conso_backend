@@ -176,6 +176,11 @@ def execute_run(run_id: str):
 
         process.stdout.close()
         process.wait()
+        if process.returncode == -9:
+            log(run_id, "INFO", "Run cancelled by user")
+            return   # DO NOT go to except
+
+
 
         if process.returncode != 0:
             raise Exception("Script failed")
@@ -227,17 +232,27 @@ def execute_run(run_id: str):
 
         log(run_id, "INFO", "Run completed successfully")
 
+    
     except Exception as e:
-        log(run_id, "ERROR", str(e))
+    log(run_id, "ERROR", str(e))
 
-        current = (
-            supabase.table("runs")
-            .select("status")
-            .eq("id", run_id)
-            .single()
-            .execute()
-            .data
-        )
+    current = (
+        supabase.table("runs")
+        .select("status")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
+    # 🔥 NEVER override cancelled
+    if current and current["status"] == "cancelled":
+        return
+
+    supabase.table("runs").update({
+        "status": "failed",
+        "end_time": datetime.utcnow().isoformat()
+    }).eq("id", run_id).execute()
 
 # 🔥 only mark failed if NOT cancelled
         if current["status"] != "cancelled":
@@ -393,23 +408,25 @@ def execute_input_run(run_id: str):
         log(run_id, "INFO", "Input creation completed")
 
     except Exception as e:
-        log(run_id, "ERROR", str(e))
+    log(run_id, "ERROR", str(e))
 
-        current = (
-            supabase.table("runs")
-            .select("status")
-            .eq("id", run_id)
-            .single()
-            .execute()
-            .data
-        )
+    current = (
+        supabase.table("runs")
+        .select("status")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
 
-        if current["status"] != "cancelled":
-            supabase.table("runs").update({
-            "status": "failed",
-            "end_time": datetime.utcnow().isoformat()
-        }).eq("id", run_id).execute()
+    # 🔥 NEVER override cancelled
+    if current and current["status"] == "cancelled":
+        return
 
+    supabase.table("runs").update({
+        "status": "failed",
+        "end_time": datetime.utcnow().isoformat()
+    }).eq("id", run_id).execute()
 
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
