@@ -176,6 +176,17 @@ def execute_run(run_id: str):
 
         process.stdout.close()
         process.wait()
+        current_status = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
+        if current_status and current_status["status"] == "cancelled":
+            log(run_id, "INFO", "Run cancelled by user")
+            return
         if process.returncode == -9:
             log(run_id, "INFO", "Run cancelled by user")
             return   # DO NOT go to except
@@ -605,4 +616,3 @@ def cancel_run(run_id: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
