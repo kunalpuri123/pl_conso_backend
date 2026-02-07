@@ -166,8 +166,8 @@ def execute_run(run_id: str):
             bufsize=1
         )
         supabase.table("runs").update({
-    "process_pid": process.pid
-}).eq("id", run_id).execute()
+            "process_pid": process.pid
+        }).eq("id", run_id).execute()
 
 
         # 🔥 STREAM LIVE LOGS
@@ -330,8 +330,8 @@ def execute_input_run(run_id: str):
             universal_newlines=True
         )
         supabase.table("runs").update({
-    "process_pid": process.pid
-}).eq("id", run_id).execute()
+            "process_pid": process.pid
+        }).eq("id", run_id).execute()
 
 
         for line in process.stdout:
@@ -344,9 +344,9 @@ def execute_input_run(run_id: str):
             log(run_id, "INFO", "Run cancelled by user")
             return
 
-# real failure
+        # real failure
         if process.returncode != 0:
-             raise Exception("Script failed")
+            raise Exception("Script failed")
 
 
         # -----------------------------
@@ -396,28 +396,28 @@ def execute_input_run(run_id: str):
 
         log(run_id, "INFO", "Input creation completed")
 
-        except Exception as e:
-            log(run_id, "ERROR", str(e))
+    except Exception as e:
+        log(run_id, "ERROR", str(e))
 
-            current = (
-                supabase.table("runs")
-                .select("status")
-                .eq("id", run_id)
-                .single()
-                .execute()
-                .data
-            )
+        current = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
 
-            if current and current["status"] == "cancelled":
-                return
+        if current and current["status"] == "cancelled":
+            return
 
-            supabase.table("runs").update({
-                "status": "failed",
-                "end_time": datetime.utcnow().isoformat()
-            }).eq("id", run_id).execute()
+        supabase.table("runs").update({
+            "status": "failed",
+            "end_time": datetime.utcnow().isoformat()
+        }).eq("id", run_id).execute()
 
-        finally:
-            shutil.rmtree(run_dir, ignore_errors=True)
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
 
 
 # =========================================================
@@ -605,5 +605,4 @@ def cancel_run(run_id: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
 
