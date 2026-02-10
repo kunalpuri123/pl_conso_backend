@@ -7,8 +7,15 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import difflib
+import time
 
-print("=== PL CONSO AUTOMATION STARTED ===")
+START_TS = time.perf_counter()
+
+def log(msg):
+    elapsed = time.perf_counter() - START_TS
+    print(f"[{elapsed:8.1f}s] {msg}", flush=True)
+
+log("=== PL CONSO AUTOMATION STARTED ===")
 
 def closest_token_match(value, candidates):
     val_tokens = set(normalize_text(value).split())
@@ -225,6 +232,9 @@ def is_na(val):
     s = str(val).strip().lower()
     return s in {"", "n/a", "na", "null", "nan"}
 
+def series_is_na(s):
+    return s.isna() | s.astype(str).str.strip().str.lower().isin({"", "n/a", "na", "null", "nan"})
+
 def raw_str(val):
     if val is None:
         return ""
@@ -354,48 +364,59 @@ def safe_key(v):
         return "__BLANK__"
     return s
 
-df["unique_key"] = df[unique_key_columns].agg(
-    lambda row: "".join(safe_key(v) for v in row),
-    axis=1
-)
+_key_df = df[unique_key_columns].copy()
+_key_df = _key_df.where(~_key_df.isna(), "__NULL__")
+_key_df = _key_df.astype(str)
+_key_df = _key_df.mask(_key_df.eq(""), "__BLANK__")
+df["unique_key"] = _key_df.agg("".join, axis=1)
 
 
 
 
 # ================= ROW LEVEL CHECKS =================
-results = []
+log("Row-level checks started")
 
-for _, row in df.iterrows():
-    reasons = []
-    res = {}
+scope_s = df["scope"].astype(str).str.strip()
+rname_s = df["rname"].astype(str).str.strip()
+country_s = df["country"].astype(str).str.strip()
+channel_s = df["channel"].astype(str).str.strip()
+productid_s = df["productid"]
 
-    status, reason = check_productid(row.get("productid"), row.get("channel"))
-    res["productid_check"] = status
+scope_na = series_is_na(df["scope"])
+rname_na = series_is_na(df["rname"])
+country_na = series_is_na(df["country"])
+brand_na = series_is_na(df["brand"])
+pname_na = series_is_na(df["pname"])
+productid_na = series_is_na(productid_s)
 
-    scope = str(row.get("scope")).strip()
-    rname = str(row.get("rname")).strip()
-    country = str(row.get("country")).strip()
+productid_format_ok = productid_s.astype(str).str.match(r"^[^_]+(_[^_]+){2,3}$", na=False)
+df["productid_check"] = np.where(
+    productid_na & (channel_s == "App"),
+    "PASS",
+    np.where(productid_na, "FAIL", np.where(productid_format_ok, "PASS", "FAIL"))
+)
 
-    sc, sm, _ = check_from_master_verbose(scope, all_scopes)
-    res["scope_check"] = sc
-    res["scope_missing"] = sm
+scope_valid = scope_s.isin(all_scopes)
+df["scope_check"] = np.where(scope_na, "PASS", np.where(scope_valid, "PASS", "FAIL"))
+df["scope_missing"] = np.where(scope_na | scope_valid, "", scope_s)
 
-    rc, rm, _ = check_from_master_verbose(rname, scope_to_rnames.get(scope, set()))
-    res["rname_check"] = rc
-    res["rname_missing"] = rm
+scope_rname_pairs = pd.Series(list(zip(scope_s, rname_s)))
+rname_valid = scope_rname_pairs.isin(valid_scope_rname)
+df["rname_check"] = np.where(rname_na, "PASS", np.where(rname_valid, "PASS", "FAIL"))
+df["rname_missing"] = np.where(rname_na | rname_valid, "", rname_s)
 
-    cc, cm, _ = check_from_master_verbose(country, scope_to_countries.get(scope, set()))
-    res["country_check"] = cc
-    res["country_missing"] = cm
+scope_country_pairs = pd.Series(list(zip(scope_s, country_s)))
+country_valid = scope_country_pairs.isin(valid_scope_country)
+df["country_check"] = np.where(country_na, "PASS", np.where(country_valid, "PASS", "FAIL"))
+df["country_missing"] = np.where(country_na | country_valid, "", country_s)
 
-    res["brand_check"] = "FAIL" if is_na(row.get("brand")) else "PASS"
-    res["pname_check"] = "FAIL" if is_na(row.get("pname")) else "PASS"
+df["brand_check"] = np.where(brand_na, "FAIL", "PASS")
+df["pname_check"] = np.where(pname_na, "FAIL", "PASS")
 
-    results.append(res)
-
-df = pd.concat([df, pd.DataFrame(results)], axis=1)
+log("Row-level checks finished")
 
 # ================= POSITION CHECK =================
+log("Position check started")
 df["position"] = pd.to_numeric(df["position"], errors="coerce")
 
 pivot_df = df.groupby("unique_key").agg(
@@ -403,14 +424,12 @@ pivot_df = df.groupby("unique_key").agg(
     max_position=("position", "max")
 ).reset_index()
 
-pivot_df["position_validation_status"] = pivot_df.apply(
-    lambda row: (
-        "LESS_THAN_60_OK" if (row["position_count"] < 60 and row["max_position"] == row["position_count"])
-        else "LESS_THAN_60_INVALID" if (row["position_count"] < 60)
-        else "HAS_60"
-    ),
-    axis=1
+pivot_df["position_validation_status"] = np.where(
+    (pivot_df["position_count"] < 60) & (pivot_df["max_position"] == pivot_df["position_count"]),
+    "LESS_THAN_60_OK",
+    np.where(pivot_df["position_count"] < 60, "LESS_THAN_60_INVALID", "HAS_60")
 )
+log("Position check finished")
 
 
 
@@ -449,6 +468,7 @@ with ThreadPoolExecutor(max_workers=20) as executor:
 df["evidence_url_validation"] = df["evidence_url"].map(url_status_map)
 
 print("Starting column checks...", flush=True)
+log("Column checks started")
 
 
 # ================= COLUMN INPUT VALIDATION =================
@@ -464,7 +484,7 @@ def apply_check(col, ip_key, is_url=False):
     else:
         series = df[col].astype(str).str.strip()
 
-    na_mask = series.apply(is_na)
+    na_mask = series_is_na(series)
 
     df[f"{col}_ip_check"] = "PASS"
     df[f"{col}_missing"] = ""
@@ -495,6 +515,7 @@ apply_check("purl", "purl", is_url=True)
 apply_check("top_category_lvmh", "top_category_lvmh")
 apply_check("category_lvmh", "category_lvmh")
 apply_check("sub_category_lvmh", "sub_category_lvmh")
+log("Column checks finished")
 
 # ================= DATE / LISTING =================
 today = datetime.today().strftime("%Y-%m-%d")
@@ -534,29 +555,23 @@ def build_failure_reason(row):
     return " | ".join(dict.fromkeys(reasons))
 
 # ================= FAST + DETAILED FAILURE REASON =================
+log("Failure reason build started")
 
-reasons = []
+df["failure_reason"] = ""
 
 for col, msg in FAILURE_MESSAGE_MAP.items():
     if col in df.columns:
-        reasons.append(np.where(df[col].eq("FAIL"), msg, ""))
+        df.loc[df[col].eq("FAIL"), "failure_reason"] += msg + " | "
 
 # evidence url check
 if "evidence_url_validation" in df.columns:
-    reasons.append(
-        np.where(
-            df["evidence_url_validation"].isin(["NOT_FOUND", "ERROR", "MISSING"]),
-            "evidence_url not valid or mismatch with page",
-            ""
-        )
-    )
+    df.loc[
+        df["evidence_url_validation"].isin(["NOT_FOUND", "ERROR", "MISSING"]),
+        "failure_reason"
+    ] += "evidence_url not valid or mismatch with page | "
 
-reason_df = pd.DataFrame(reasons).T
-
-df["failure_reason"] = reason_df.apply(
-    lambda x: " | ".join(filter(None, x)),
-    axis=1
-)
+df["failure_reason"] = df["failure_reason"].str.rstrip(" | ")
+log("Failure reason build finished")
 
 df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
 
