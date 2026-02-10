@@ -621,10 +621,14 @@ output_file = OUTPUT_FILE
 excel_engine = os.getenv("PL_EXCEL_ENGINE", "openpyxl").strip().lower()
 
 log(f"Writing Excel workbook (engine={excel_engine})")
+engine_kwargs = {}
+if excel_engine == "xlsxwriter":
+    engine_kwargs = {"options": {"strings_to_urls": False}}
+
 with pd.ExcelWriter(
     output_file,
     engine=excel_engine,
-    engine_kwargs={"write_only": True} if excel_engine == "openpyxl" else {"options": {"strings_to_urls": False}}
+    engine_kwargs=engine_kwargs
 ) as writer:
 
     # Main comparison sheet
