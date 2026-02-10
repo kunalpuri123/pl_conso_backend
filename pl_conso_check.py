@@ -621,66 +621,70 @@ output_file = OUTPUT_FILE
 excel_engine = os.getenv("PL_EXCEL_ENGINE", "xlsxwriter").strip().lower()
 chunk_rows_env = os.getenv("PL_EXCEL_CHUNK_ROWS", "").strip()
 chunk_rows = int(chunk_rows_env) if chunk_rows_env.isdigit() else 0
+skip_excel = os.getenv("PL_SKIP_EXCEL", "1").strip().lower() in {"1", "true", "yes"}
 
-log(f"Writing Excel workbook (engine={excel_engine})")
-engine_kwargs = {}
-if excel_engine == "xlsxwriter":
-    engine_kwargs = {"options": {"strings_to_urls": False, "strings_to_formulas": False, "constant_memory": True}}
+if skip_excel:
+    log("Skipping Excel write (PL_SKIP_EXCEL=1)")
+else:
+    log(f"Writing Excel workbook (engine={excel_engine})")
+    engine_kwargs = {}
+    if excel_engine == "xlsxwriter":
+        engine_kwargs = {"options": {"strings_to_urls": False, "strings_to_formulas": False, "constant_memory": True}}
 
-with pd.ExcelWriter(
-    output_file,
-    engine=excel_engine,
-    engine_kwargs=engine_kwargs
-) as writer:
+    with pd.ExcelWriter(
+        output_file,
+        engine=excel_engine,
+        engine_kwargs=engine_kwargs
+    ) as writer:
 
-    # Main comparison sheet
-    if chunk_rows > 0:
-        log(f"Writing PL_Data in chunks (rows={chunk_rows})")
-        for i in range(0, len(df), chunk_rows):
-            df.iloc[i:i + chunk_rows].to_excel(
-                writer,
-                sheet_name="PL_Data",
-                index=False,
-                header=(i == 0),
-                startrow=(i + 1 if i > 0 else 0)
-            )
-    else:
-        df.to_excel(writer, sheet_name="PL_Data", index=False)
+        # Main comparison sheet
+        if chunk_rows > 0:
+            log(f"Writing PL_Data in chunks (rows={chunk_rows})")
+            for i in range(0, len(df), chunk_rows):
+                df.iloc[i:i + chunk_rows].to_excel(
+                    writer,
+                    sheet_name="PL_Data",
+                    index=False,
+                    header=(i == 0),
+                    startrow=(i + 1 if i > 0 else 0)
+                )
+        else:
+            df.to_excel(writer, sheet_name="PL_Data", index=False)
 
-    # Pivot sheet
-    pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
+        # Pivot sheet
+        pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
 
-    # Missing URLs
-    missing_urls_df.to_excel(
-        writer,
-        sheet_name="Missing_URLs",
-        index=False
-    )
+        # Missing URLs
+        missing_urls_df.to_excel(
+            writer,
+            sheet_name="Missing_URLs",
+            index=False
+        )
 
-    # Extra columns
-    extra_columns_df.to_excel(
-        writer,
-        sheet_name="Extra_Columns",
-        index=False
-    )
+        # Extra columns
+        extra_columns_df.to_excel(
+            writer,
+            sheet_name="Extra_Columns",
+            index=False
+        )
 
-print("Finished Excel write", flush=True)
-log("Output write finished")
+    print("Finished Excel write", flush=True)
+    log("Output write finished")
 
-# Fallback: if file looks too small for a non-empty dataframe, rewrite with openpyxl
-try:
-    if len(df) > 0:
-        out_size = output_file.stat().st_size
-        if out_size < 1_000_000:
-            print(f"⚠️ Output file size looks too small ({out_size} bytes). Rewriting with openpyxl...", flush=True)
-            with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-                df.to_excel(writer, sheet_name="PL_Data", index=False)
-                pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
-                missing_urls_df.to_excel(writer, sheet_name="Missing_URLs", index=False)
-                extra_columns_df.to_excel(writer, sheet_name="Extra_Columns", index=False)
-            print("✅ Rewritten with openpyxl", flush=True)
-except Exception as e:
-    print(f"⚠️ Post-write check failed: {e}", flush=True)
+    # Fallback: if file looks too small for a non-empty dataframe, rewrite with openpyxl
+    try:
+        if len(df) > 0:
+            out_size = output_file.stat().st_size
+            if out_size < 1_000_000:
+                print(f"⚠️ Output file size looks too small ({out_size} bytes). Rewriting with openpyxl...", flush=True)
+                with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+                    df.to_excel(writer, sheet_name="PL_Data", index=False)
+                    pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
+                    missing_urls_df.to_excel(writer, sheet_name="Missing_URLs", index=False)
+                    extra_columns_df.to_excel(writer, sheet_name="Extra_Columns", index=False)
+                print("✅ Rewritten with openpyxl", flush=True)
+    except Exception as e:
+        print(f"⚠️ Post-write check failed: {e}", flush=True)
 
 # ================= CSV PER SHEET + ZIP =================
 export_csv_zip = os.getenv("PL_EXPORT_CSV_ZIP", "1").strip().lower() in {"1", "true", "yes"}
