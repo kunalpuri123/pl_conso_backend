@@ -1,2 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-302	n/a	m_notino	get	product_listing	product_listing	PLAYWRIGHT	False	False	302	PL	n/a	n/a	Hermes_Europe	n/a	n/a	n/a	n/a	Hermes_Europe	Poland	Notino	Daily	Notino_PL	n/a	n/a	Notino	0

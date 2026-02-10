@@ -1,3 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-339	n/a	shilladfs	get	product_listing	product_listing	JBROWSERSCREENSHOT	False	False	339	KR	n/a	n/a	COTY TRAP	n/a	n/a	n/a	n/a	COTY TRAP	South Korea	Shilla	Daily	Shilla	n/a	n/a	Shilla	0
-340	n/a	shilladfs	get	product_listing	product_listing	SELENIUM	False	False	340	KR	n/a	n/a	COTY_TRAP_Prestige	n/a	n/a	n/a	n/a	COTY_TRAP_Prestige	South Korea	Shilla	Daily	Shilla	n/a	n/a	Shilla	0

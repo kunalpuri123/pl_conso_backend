@@ -1,2 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-411	n/a	selfridges	get	product_listing	product_listing	PLAYWRIGHT	False	True	411	UK	n/a	n/a	MFK	n/a	n/a	n/a	n/a	MFK	United Kingdom	M_Selfridges	Daily	M_Selfridges	n/a	n/a	M_Selfridges	0

@@ -1,2 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-255	n/a	amazon_in	get	product_listing	product_listing	SELENIUM	False	True	255	IN	n/a	n/a	COTY_SEA_Prestige	n/a	n/a	n/a	n/a	COTY_SEA_Prestige	India	Amazon_IN Lux	Daily	Amazon_IN Lux	n/a	n/a	Amazon_IN	0

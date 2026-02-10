@@ -1,4 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-448	n/a	nordstrom	get	product_listing	product_listing	HTTPCLIENT	False	True	448	US	n/a	n/a	COTY	n/a	n/a	n/a	n/a	COTY	United States	Nordstrom	Daily	Nordstrom	n/a	n/a	Nordstrom	0
-449	n/a	nordstrom	get	product_listing	product_listing	PLAYWRIGHT	False	False	449	US	n/a	n/a	Hermes_Americas	n/a	n/a	n/a	n/a	Hermes_Americas	United States	Nordstrom	Daily	Nordstrom	n/a	n/a	Nordstrom	0
-450	n/a	nordstrom	get	product_listing	product_listing	HTTPCLIENT	False	False	450	US	n/a	n/a	MFK	n/a	n/a	n/a	n/a	MFK	United States	Nordstrom	Daily	Nordstrom	n/a	n/a	Nordstrom	0

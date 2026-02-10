@@ -1,3 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-452	n/a	riteaid	get	product_listing	product_listing	JBROWSERSCREENSHOT	False	False	452	US	n/a	n/a	COTY_US_CB	n/a	n/a	n/a	n/a	COTY_US_CB	United States	Rite Aid	Daily	Rite Aid	n/a	n/a	riteaid	0
-453	n/a	riteaid	get	product_listing	product_listing	JBROWSERSCREENSHOT	False	False	453	US	n/a	n/a	COTY_US_Consumer Beauty	n/a	n/a	n/a	n/a	COTY_US_Consumer Beauty	United States	Rite Aid	Daily	Rite Aid	n/a	n/a	Rite Aid	0

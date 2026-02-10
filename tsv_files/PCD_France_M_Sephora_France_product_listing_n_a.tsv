@@ -1,2 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-55	n/a	sephora_fr	get	product_listing	product_listing	PLAYWRIGHT	False	False	55	FR	n/a	n/a	PCD_France	n/a	n/a	n/a	n/a	PCD_France	France	M_Sephora	Daily	M_Sephora	n/a	n/a	Sephora	0

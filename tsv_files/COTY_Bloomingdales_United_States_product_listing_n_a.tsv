@@ -1,4 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-428	n/a	bloomingdales	get	product_listing	product_listing	PLAYWRIGHT	False	False	428	US	n/a	n/a	COTY	n/a	n/a	n/a	n/a	COTY	United States	Bloomingdales	Daily	Bloomingdales	n/a	n/a	Bloomingdales	0
-429	n/a	bloomingdales	get	product_listing	product_listing	PLAYWRIGHT	False	False	429	US	n/a	n/a	Hermes_Americas	n/a	n/a	n/a	n/a	Hermes_Americas	United States	Bloomingdales	Daily	Bloomingdales	n/a	n/a	Bloomingdales	0
-430	n/a	bloomingdales	get	product_listing	product_listing	PLAYWRIGHT	False	False	430	US	n/a	n/a	MFK	n/a	n/a	n/a	n/a	MFK	United States	Bloomingdales	Daily	Bloomingdales	n/a	n/a	Bloomingdales	0

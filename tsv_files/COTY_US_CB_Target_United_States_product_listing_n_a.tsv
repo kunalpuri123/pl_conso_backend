@@ -1,3 +1,0 @@
-Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
-459	n/a	target	get	product_listing	product_listing	JBROWSERSCREENSHOT	False	False	459	US	n/a	n/a	COTY_US_CB	n/a	n/a	n/a	n/a	COTY_US_CB	United States	Target	Daily	Target	n/a	n/a	target	0
-460	n/a	m_target	get	product_listing	product_listing	PLAYWRIGHT	False	False	460	US	n/a	n/a	COTY_US_Consumer Beauty	n/a	n/a	n/a	n/a	COTY_US_Consumer Beauty	United States	Target	Daily	Target	n/a	n/a	Target	0
