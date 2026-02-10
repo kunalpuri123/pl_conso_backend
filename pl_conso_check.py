@@ -618,12 +618,14 @@ print("Starting Excel write...", flush=True)
 
 output_file = OUTPUT_FILE
 
-excel_engine = os.getenv("PL_EXCEL_ENGINE", "openpyxl").strip().lower()
+excel_engine = os.getenv("PL_EXCEL_ENGINE", "xlsxwriter").strip().lower()
+chunk_rows_env = os.getenv("PL_EXCEL_CHUNK_ROWS", "").strip()
+chunk_rows = int(chunk_rows_env) if chunk_rows_env.isdigit() else 0
 
 log(f"Writing Excel workbook (engine={excel_engine})")
 engine_kwargs = {}
 if excel_engine == "xlsxwriter":
-    engine_kwargs = {"options": {"strings_to_urls": False}}
+    engine_kwargs = {"options": {"strings_to_urls": False, "strings_to_formulas": False, "constant_memory": True}}
 
 with pd.ExcelWriter(
     output_file,
@@ -632,7 +634,18 @@ with pd.ExcelWriter(
 ) as writer:
 
     # Main comparison sheet
-    df.to_excel(writer, sheet_name="PL_Data", index=False)
+    if chunk_rows > 0:
+        log(f"Writing PL_Data in chunks (rows={chunk_rows})")
+        for i in range(0, len(df), chunk_rows):
+            df.iloc[i:i + chunk_rows].to_excel(
+                writer,
+                sheet_name="PL_Data",
+                index=False,
+                header=(i == 0),
+                startrow=(i + 1 if i > 0 else 0)
+            )
+    else:
+        df.to_excel(writer, sheet_name="PL_Data", index=False)
 
     # Pivot sheet
     pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
