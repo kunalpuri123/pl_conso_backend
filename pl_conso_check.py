@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import difflib
 import time
+import os
 
 START_TS = time.perf_counter()
 
@@ -617,36 +618,31 @@ print("Starting Excel write...", flush=True)
 
 output_file = OUTPUT_FILE
 
+skip_excel = os.getenv("PL_SKIP_EXCEL", "").strip().lower() in {"1", "true", "yes"}
+summary_cols = os.getenv("PL_EXCEL_SUMMARY_COLS", "").strip()
+
 # -------- CSV (fast full dump) --------
+log("Writing CSV")
 df.to_csv(output_file.with_suffix(".csv"), index=False)
+log("CSV write finished")
 
-# -------- Excel (FAST writer) --------
-with pd.ExcelWriter(
-    output_file,
-    engine="xlsxwriter",
-    engine_kwargs={"options": {"strings_to_urls": False}}   # faster + avoids auto hyperlink parsing
-) as writer:
+if skip_excel:
+    log("Skipping Excel write (PL_SKIP_EXCEL=1)")
+else:
+    # -------- Excel summary (small, fast) --------
+    if summary_cols:
+        excel_cols = [c.strip().lower() for c in summary_cols.split(",") if c.strip()]
+    else:
+        excel_cols = ["scope", "rname", "country", "overall_status", "failure_reason"]
 
-    # Main comparison sheet
-    df.to_excel(writer, sheet_name="PL_Data", index=False)
+    missing = [c for c in excel_cols if c not in df.columns]
+    if missing:
+        print(f"⚠️ Summary columns missing from output: {missing}", flush=True)
+    excel_cols = [c for c in excel_cols if c in df.columns]
 
-    # Pivot sheet
-    pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
-
-    # Missing URLs
-    missing_urls_df.to_excel(
-        writer,
-        sheet_name="Missing_URLs",
-        index=False
-    )
-
-    # Extra columns
-    extra_columns_df.to_excel(
-        writer,
-        sheet_name="Extra_Columns",
-        index=False
-    )
-
-print("Finished Excel write", flush=True)
+    log(f"Writing Excel summary (cols={len(excel_cols)})")
+    df[excel_cols].to_excel(output_file, index=False)
+    print("Finished Excel write", flush=True)
+    log("Output write finished")
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
