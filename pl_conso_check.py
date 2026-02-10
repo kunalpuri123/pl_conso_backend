@@ -7,16 +7,8 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import difflib
-import time
-import os
 
-START_TS = time.perf_counter()
-
-def log(msg):
-    elapsed = time.perf_counter() - START_TS
-    print(f"[{elapsed:8.1f}s] {msg}", flush=True)
-
-log("=== PL CONSO AUTOMATION STARTED ===")
+print("=== PL CONSO AUTOMATION STARTED ===")
 
 def closest_token_match(value, candidates):
     val_tokens = set(normalize_text(value).split())
@@ -233,9 +225,6 @@ def is_na(val):
     s = str(val).strip().lower()
     return s in {"", "n/a", "na", "null", "nan"}
 
-def series_is_na(s):
-    return s.isna() | s.astype(str).str.strip().str.lower().isin({"", "n/a", "na", "null", "nan"})
-
 def raw_str(val):
     if val is None:
         return ""
@@ -375,13 +364,14 @@ df["unique_key"] = _key_df.agg("".join, axis=1)
 
 
 # ================= ROW LEVEL CHECKS =================
-log("Row-level checks started")
-
 scope_s = df["scope"].astype(str).str.strip()
 rname_s = df["rname"].astype(str).str.strip()
 country_s = df["country"].astype(str).str.strip()
 channel_s = df["channel"].astype(str).str.strip()
 productid_s = df["productid"]
+
+def series_is_na(s):
+    return s.isna() | s.astype(str).str.strip().str.lower().isin({"", "n/a", "na", "null", "nan"})
 
 scope_na = series_is_na(df["scope"])
 rname_na = series_is_na(df["rname"])
@@ -414,10 +404,7 @@ df["country_missing"] = np.where(country_na | country_valid, "", country_s)
 df["brand_check"] = np.where(brand_na, "FAIL", "PASS")
 df["pname_check"] = np.where(pname_na, "FAIL", "PASS")
 
-log("Row-level checks finished")
-
 # ================= POSITION CHECK =================
-log("Position check started")
 df["position"] = pd.to_numeric(df["position"], errors="coerce")
 
 pivot_df = df.groupby("unique_key").agg(
@@ -430,7 +417,6 @@ pivot_df["position_validation_status"] = np.where(
     "LESS_THAN_60_OK",
     np.where(pivot_df["position_count"] < 60, "LESS_THAN_60_INVALID", "HAS_60")
 )
-log("Position check finished")
 
 
 
@@ -469,7 +455,6 @@ with ThreadPoolExecutor(max_workers=20) as executor:
 df["evidence_url_validation"] = df["evidence_url"].map(url_status_map)
 
 print("Starting column checks...", flush=True)
-log("Column checks started")
 
 
 # ================= COLUMN INPUT VALIDATION =================
@@ -516,7 +501,6 @@ apply_check("purl", "purl", is_url=True)
 apply_check("top_category_lvmh", "top_category_lvmh")
 apply_check("category_lvmh", "category_lvmh")
 apply_check("sub_category_lvmh", "sub_category_lvmh")
-log("Column checks finished")
 
 # ================= DATE / LISTING =================
 today = datetime.today().strftime("%Y-%m-%d")
@@ -556,15 +540,12 @@ def build_failure_reason(row):
     return " | ".join(dict.fromkeys(reasons))
 
 # ================= FAST + DETAILED FAILURE REASON =================
-log("Failure reason build started")
-
 df["failure_reason"] = ""
 
 for col, msg in FAILURE_MESSAGE_MAP.items():
     if col in df.columns:
         df.loc[df[col].eq("FAIL"), "failure_reason"] += msg + " | "
 
-# evidence url check
 if "evidence_url_validation" in df.columns:
     df.loc[
         df["evidence_url_validation"].isin(["NOT_FOUND", "ERROR", "MISSING"]),
@@ -572,7 +553,6 @@ if "evidence_url_validation" in df.columns:
     ] += "evidence_url not valid or mismatch with page | "
 
 df["failure_reason"] = df["failure_reason"].str.rstrip(" | ")
-log("Failure reason build finished")
 
 df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
 
@@ -618,98 +598,36 @@ print("Starting Excel write...", flush=True)
 
 output_file = OUTPUT_FILE
 
-excel_engine = os.getenv("PL_EXCEL_ENGINE", "xlsxwriter").strip().lower()
-chunk_rows_env = os.getenv("PL_EXCEL_CHUNK_ROWS", "").strip()
-chunk_rows = int(chunk_rows_env) if chunk_rows_env.isdigit() else 0
-skip_excel = os.getenv("PL_SKIP_EXCEL", "1").strip().lower() in {"1", "true", "yes"}
+# -------- CSV (fast full dump) --------
+df.to_csv(output_file.with_suffix(".csv"), index=False)
 
-if skip_excel:
-    log("Skipping Excel write (PL_SKIP_EXCEL=1)")
-else:
-    log(f"Writing Excel workbook (engine={excel_engine})")
-    engine_kwargs = {}
-    if excel_engine == "xlsxwriter":
-        engine_kwargs = {"options": {"strings_to_urls": False, "strings_to_formulas": False, "constant_memory": True}}
+# -------- Excel (FAST writer) --------
+with pd.ExcelWriter(
+    output_file,
+    engine="xlsxwriter",
+    engine_kwargs={"options": {"strings_to_urls": False}}   # faster + avoids auto hyperlink parsing
+) as writer:
 
-    with pd.ExcelWriter(
-        output_file,
-        engine=excel_engine,
-        engine_kwargs=engine_kwargs
-    ) as writer:
+    # Main comparison sheet
+    df.to_excel(writer, sheet_name="PL_Data", index=False)
 
-        # Main comparison sheet
-        if chunk_rows > 0:
-            log(f"Writing PL_Data in chunks (rows={chunk_rows})")
-            for i in range(0, len(df), chunk_rows):
-                df.iloc[i:i + chunk_rows].to_excel(
-                    writer,
-                    sheet_name="PL_Data",
-                    index=False,
-                    header=(i == 0),
-                    startrow=(i + 1 if i > 0 else 0)
-                )
-        else:
-            df.to_excel(writer, sheet_name="PL_Data", index=False)
+    # Pivot sheet
+    pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
 
-        # Pivot sheet
-        pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
+    # Missing URLs
+    missing_urls_df.to_excel(
+        writer,
+        sheet_name="Missing_URLs",
+        index=False
+    )
 
-        # Missing URLs
-        missing_urls_df.to_excel(
-            writer,
-            sheet_name="Missing_URLs",
-            index=False
-        )
+    # Extra columns
+    extra_columns_df.to_excel(
+        writer,
+        sheet_name="Extra_Columns",
+        index=False
+    )
 
-        # Extra columns
-        extra_columns_df.to_excel(
-            writer,
-            sheet_name="Extra_Columns",
-            index=False
-        )
-
-    print("Finished Excel write", flush=True)
-    log("Output write finished")
-
-    # Fallback: if file looks too small for a non-empty dataframe, rewrite with openpyxl
-    try:
-        if len(df) > 0:
-            out_size = output_file.stat().st_size
-            if out_size < 1_000_000:
-                print(f"⚠️ Output file size looks too small ({out_size} bytes). Rewriting with openpyxl...", flush=True)
-                with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-                    df.to_excel(writer, sheet_name="PL_Data", index=False)
-                    pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
-                    missing_urls_df.to_excel(writer, sheet_name="Missing_URLs", index=False)
-                    extra_columns_df.to_excel(writer, sheet_name="Extra_Columns", index=False)
-                print("✅ Rewritten with openpyxl", flush=True)
-    except Exception as e:
-        print(f"⚠️ Post-write check failed: {e}", flush=True)
-
-# ================= CSV PER SHEET + ZIP =================
-export_csv_zip = os.getenv("PL_EXPORT_CSV_ZIP", "1").strip().lower() in {"1", "true", "yes"}
-if export_csv_zip:
-    try:
-        from zipfile import ZipFile, ZIP_DEFLATED
-
-        csv_files = [
-            ("PL_Data.csv", df),
-            ("Pivot_Position_Check.csv", pivot_df),
-            ("Missing_URLs.csv", missing_urls_df),
-            ("Extra_Columns.csv", extra_columns_df),
-        ]
-
-        zip_path = output_file.with_suffix(".zip")
-        print(f"📦 Writing CSVs and zip: {zip_path}", flush=True)
-
-        with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zf:
-            for name, dataf in csv_files:
-                csv_path = output_file.with_name(name)
-                dataf.to_csv(csv_path, index=False)
-                zf.write(csv_path, arcname=name)
-
-        print("✅ CSV zip generated", flush=True)
-    except Exception as e:
-        print(f"⚠️ Failed to generate CSV zip: {e}", flush=True)
+print("Finished Excel write", flush=True)
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
