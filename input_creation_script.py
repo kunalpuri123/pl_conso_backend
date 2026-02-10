@@ -92,9 +92,13 @@ print("Merged rows:", len(merged_df))
 
 final_df = pd.DataFrame(columns=template_df.columns)
 
+# Case-insensitive column mapping to avoid empty columns due to casing differences
+merged_col_map = {c.lower(): c for c in merged_df.columns}
+
 for col in final_df.columns:
-    if col in merged_df.columns:
-        final_df[col] = merged_df[col]
+    src = merged_col_map.get(col.lower())
+    if src:
+        final_df[col] = merged_df[src]
     else:
         final_df[col] = None
 
