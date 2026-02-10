@@ -189,7 +189,9 @@ AUTO_GENERATED_COLUMNS_PREFIX = (
     "keywords_ip_check","purl_ip_check","top_category_lvmh_ip_check","category_lvmh_ip_check",
     "sub_category_lvmh_ip_check","date_check","product_page_url_check","listing_type_check",
     "evidence_url_validation","position_validation_status","failure_reason","overall_status",
-    "unique_key","position_count","max_position"
+    "unique_key","position_count","max_position",
+    "keywords_space_issue","purl_space_issue","top_category_lvmh_space_issue",
+    "category_lvmh_space_issue","sub_category_lvmh_space_issue"
 )
 # ================= FIND EXTRA COLUMNS IN OP =================
 
@@ -224,6 +226,9 @@ def is_na(val):
         return True
     s = str(val).strip().lower()
     return s in {"", "n/a", "na", "null", "nan"}
+
+def series_is_na(s):
+    return s.isna() | s.astype(str).str.strip().str.lower().isin({"", "n/a", "na", "null", "nan"})
 
 def raw_str(val):
     if val is None:
@@ -466,15 +471,18 @@ def apply_check(col, ip_key, is_url=False):
     valid_set = ip_sets[ip_key]
 
     if is_url:
-        series = df[col].apply(normalize_url_for_compare)
+        raw_series = df[col].astype(str)
+        series = raw_series.apply(normalize_url_for_compare)
     else:
-        series = df[col].astype(str).str.strip()
+        raw_series = df[col].astype(str)
+        series = raw_series.str.strip()
 
     na_mask = series_is_na(series)
 
     df[f"{col}_ip_check"] = "PASS"
     df[f"{col}_missing"] = ""
     df[f"{col}_closest"] = ""
+    df[f"{col}_space_issue"] = ""
 
     check_mask = ~na_mask
     mask_fail = check_mask & (~series.isin(valid_set))
@@ -485,6 +493,15 @@ def apply_check(col, ip_key, is_url=False):
     # ALWAYS fill missing
     # -------------------------
     df.loc[mask_fail, f"{col}_missing"] = series[mask_fail]
+
+    # -------------------------
+    # Leading/trailing space detection (must exist in IP exactly)
+    # -------------------------
+    edge_space_mask = raw_series.str.match(r"^\\s+|\\s+$", na=False)
+    edge_space_in_ip = edge_space_mask & raw_series.isin(valid_set)
+    df.loc[edge_space_in_ip, f"{col}_ip_check"] = "FAIL"
+    df.loc[edge_space_in_ip, f"{col}_space_issue"] = "FAIL"
+    df.loc[edge_space_in_ip, f"{col}_missing"] = f"space at end or start of {col} in input and output"
 
     # -------------------------
     # difflib only optionally
@@ -521,6 +538,11 @@ FAILURE_MESSAGE_MAP = {
     "top_category_lvmh_ip_check": "top_category_lvmh mismatch with IP",
     "category_lvmh_ip_check": "category_lvmh mismatch with IP",
     "sub_category_lvmh_ip_check": "sub_category_lvmh mismatch with IP",
+    "keywords_space_issue": "space at end or start of keywords in input and output",
+    "purl_space_issue": "space at end or start of purl in input and output",
+    "top_category_lvmh_space_issue": "space at end or start of top_category_lvmh in input and output",
+    "category_lvmh_space_issue": "space at end or start of category_lvmh in input and output",
+    "sub_category_lvmh_space_issue": "space at end or start of sub_category_lvmh in input and output",
     "date_check": "date should be current date",
     "product_page_url_check": "product_page_url should not be n/a",
     "listing_type_check": "listing_type should be Organic or Sponsored",
