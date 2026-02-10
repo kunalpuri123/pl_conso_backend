@@ -666,5 +666,46 @@ with pd.ExcelWriter(
 
 print("Finished Excel write", flush=True)
 log("Output write finished")
+
+# Fallback: if file looks too small for a non-empty dataframe, rewrite with openpyxl
+try:
+    if len(df) > 0:
+        out_size = output_file.stat().st_size
+        if out_size < 1_000_000:
+            print(f"⚠️ Output file size looks too small ({out_size} bytes). Rewriting with openpyxl...", flush=True)
+            with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name="PL_Data", index=False)
+                pivot_df.to_excel(writer, sheet_name="Pivot_Position_Check", index=False)
+                missing_urls_df.to_excel(writer, sheet_name="Missing_URLs", index=False)
+                extra_columns_df.to_excel(writer, sheet_name="Extra_Columns", index=False)
+            print("✅ Rewritten with openpyxl", flush=True)
+except Exception as e:
+    print(f"⚠️ Post-write check failed: {e}", flush=True)
+
+# ================= CSV PER SHEET + ZIP =================
+export_csv_zip = os.getenv("PL_EXPORT_CSV_ZIP", "1").strip().lower() in {"1", "true", "yes"}
+if export_csv_zip:
+    try:
+        from zipfile import ZipFile, ZIP_DEFLATED
+
+        csv_files = [
+            ("PL_Data.csv", df),
+            ("Pivot_Position_Check.csv", pivot_df),
+            ("Missing_URLs.csv", missing_urls_df),
+            ("Extra_Columns.csv", extra_columns_df),
+        ]
+
+        zip_path = output_file.with_suffix(".zip")
+        print(f"📦 Writing CSVs and zip: {zip_path}", flush=True)
+
+        with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zf:
+            for name, dataf in csv_files:
+                csv_path = output_file.with_name(name)
+                dataf.to_csv(csv_path, index=False)
+                zf.write(csv_path, arcname=name)
+
+        print("✅ CSV zip generated", flush=True)
+    except Exception as e:
+        print(f"⚠️ Failed to generate CSV zip: {e}", flush=True)
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
