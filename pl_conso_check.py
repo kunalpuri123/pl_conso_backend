@@ -500,7 +500,7 @@ def apply_check(col, ip_key, is_url=False):
     # -------------------------
     # Leading/trailing space detection (must exist in IP exactly)
     # -------------------------
-    edge_space_mask = raw_series.str.match(r"^\\s+|\\s+$", na=False)
+    edge_space_mask = raw_series.str.match(r"^\s+|\s+$", na=False)
     edge_space_in_ip = edge_space_mask & raw_series.isin(valid_set)
     edge_space_out_only = edge_space_mask & (~raw_series.isin(valid_set))
 
