@@ -190,10 +190,8 @@ AUTO_GENERATED_COLUMNS_PREFIX = (
     "sub_category_lvmh_ip_check","date_check","product_page_url_check","listing_type_check",
     "evidence_url_validation","position_validation_status","failure_reason","overall_status",
     "unique_key","position_count","max_position",
-    "keywords_space_issue","purl_space_issue","top_category_lvmh_space_issue",
-    "category_lvmh_space_issue","sub_category_lvmh_space_issue",
-    "keywords_space_issue_out","purl_space_issue_out","top_category_lvmh_space_issue_out",
-    "category_lvmh_space_issue_out","sub_category_lvmh_space_issue_out"
+    "keywords_space_issue","top_category_lvmh_space_issue",
+    "category_lvmh_space_issue","sub_category_lvmh_space_issue"
 )
 # ================= FIND EXTRA COLUMNS IN OP =================
 
@@ -485,7 +483,6 @@ def apply_check(col, ip_key, is_url=False):
     df[f"{col}_missing"] = ""
     df[f"{col}_closest"] = ""
     df[f"{col}_space_issue"] = ""
-    df[f"{col}_space_issue_out"] = ""
 
     check_mask = ~na_mask
     mask_fail = check_mask & (~series.isin(valid_set))
@@ -498,19 +495,13 @@ def apply_check(col, ip_key, is_url=False):
     df.loc[mask_fail, f"{col}_missing"] = series[mask_fail]
 
     # -------------------------
-    # Leading/trailing space detection (must exist in IP exactly)
+    # Leading/trailing space detection (skip purl)
     # -------------------------
-    edge_space_mask = raw_series.str.match(r"^\s+|\s+$", na=False)
-    edge_space_in_ip = edge_space_mask & raw_series.isin(valid_set)
-    edge_space_out_only = edge_space_mask & (~raw_series.isin(valid_set))
-
-    df.loc[edge_space_in_ip, f"{col}_ip_check"] = "FAIL"
-    df.loc[edge_space_in_ip, f"{col}_space_issue"] = "FAIL"
-    df.loc[edge_space_in_ip, f"{col}_missing"] = f"space at end or start of {col} in input and output"
-
-    df.loc[edge_space_out_only, f"{col}_ip_check"] = "FAIL"
-    df.loc[edge_space_out_only, f"{col}_space_issue_out"] = "FAIL"
-    df.loc[edge_space_out_only, f"{col}_missing"] = f"space at end or start of {col} in output"
+    if col != "purl":
+        edge_space_mask = raw_series.str.contains(r"^\s+|\s+$", regex=True, na=False)
+        if edge_space_mask.any():
+            df.loc[edge_space_mask, f"{col}_ip_check"] = "FAIL"
+            df.loc[edge_space_mask, f"{col}_space_issue"] = "FAIL"
 
     # -------------------------
     # difflib only optionally
@@ -547,16 +538,10 @@ FAILURE_MESSAGE_MAP = {
     "top_category_lvmh_ip_check": "top_category_lvmh mismatch with IP",
     "category_lvmh_ip_check": "category_lvmh mismatch with IP",
     "sub_category_lvmh_ip_check": "sub_category_lvmh mismatch with IP",
-    "keywords_space_issue": "space at end or start of keywords in input and output",
-    "purl_space_issue": "space at end or start of purl in input and output",
-    "top_category_lvmh_space_issue": "space at end or start of top_category_lvmh in input and output",
-    "category_lvmh_space_issue": "space at end or start of category_lvmh in input and output",
-    "sub_category_lvmh_space_issue": "space at end or start of sub_category_lvmh in input and output",
-    "keywords_space_issue_out": "space at end or start of keywords in output",
-    "purl_space_issue_out": "space at end or start of purl in output",
-    "top_category_lvmh_space_issue_out": "space at end or start of top_category_lvmh in output",
-    "category_lvmh_space_issue_out": "space at end or start of category_lvmh in output",
-    "sub_category_lvmh_space_issue_out": "space at end or start of sub_category_lvmh in output",
+    "keywords_space_issue": "space at end or start in keywords",
+    "top_category_lvmh_space_issue": "space at end or start in top_category_lvmh",
+    "category_lvmh_space_issue": "space at end or start in category_lvmh",
+    "sub_category_lvmh_space_issue": "space at end or start in sub_category_lvmh",
     "date_check": "date should be current date",
     "product_page_url_check": "product_page_url should not be n/a",
     "listing_type_check": "listing_type should be Organic or Sponsored",
