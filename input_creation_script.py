@@ -37,7 +37,12 @@ print("Output:", OUTPUT_FILE)
 # =========================================================
 
 def sanitize(text):
-    return re.sub(r'[^\w\-_.]', '_', str(text))
+    if text is None:
+        return "NA"
+    s = str(text)
+    if s.strip().lower() in {"nan", "none", ""}:
+        return "NA"
+    return re.sub(r'[^\w\-_.]', '_', s)
 
 
 # =========================================================
@@ -102,7 +107,7 @@ final_df["Base_ID"] = range(1, len(final_df) + 1)
 final_df["uniqueIdentifier"] = final_df["Base_ID"]
 
 if "category_input" in final_df.columns:
-    final_df["category_input"] = final_df["category_input"].fillna("n/a")
+    final_df["category_input"] = final_df["category_input"].fillna("n/a").replace("", "n/a")
 
 for col in ["ValidateParsedOutput", "FetchNextCrawlURL"]:
     if col in final_df.columns:
@@ -187,7 +192,7 @@ print("Consolidated TSV created")
 
 
 # =========================================================
-# 8️⃣ ZIP ALL TSVs  ⭐⭐⭐ IMPORTANT
+# 8️⃣ ZIP ALL TSVs
 # =========================================================
 
 zip_path = os.path.join(RUN_DIR, "all_tsv_files.zip")

@@ -1,0 +1,2 @@
+Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
+297	n/a	m_douglas_nl	get	product_listing	product_listing	PLAYWRIGHT	False	True	297	NL	n/a	n/a	PCD_NL	n/a	n/a	n/a	n/a	PCD_NL	Netherlands	douglas_nl	Daily	douglas_nl	n/a	n/a	douglas_nl	2

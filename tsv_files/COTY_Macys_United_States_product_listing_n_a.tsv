@@ -1,0 +1,3 @@
+Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
+444	n/a	m_macys	get	product_listing	product_listing	PLAYWRIGHT	False	False	444	US	n/a	n/a	COTY	n/a	n/a	n/a	n/a	COTY	United States	Macys	Daily	Macys	n/a	n/a	Macys	0
+445	n/a	m_macys	get	product_listing	product_listing	PLAYWRIGHT	False	False	445	US	n/a	n/a	Hermes_Americas	n/a	n/a	n/a	n/a	Hermes_Americas	United States	Macys	Daily	Macys	n/a	n/a	Macys	0

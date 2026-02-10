@@ -1,0 +1,3 @@
+Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
+77	n/a	douglas_de	get	product_listing	product_listing	PLAYWRIGHT	False	True	77	DE	n/a	n/a	Hermes_Europe	n/a	n/a	n/a	n/a	Hermes_Europe	Germany	Douglas	Daily	Douglas_DE	n/a	n/a	Douglas	0
+78	n/a	m_douglas_de	get	product_listing	product_listing	PLAYWRIGHT	False	True	78	DE	n/a	n/a	PCD_DE	n/a	n/a	n/a	n/a	PCD_DE	Germany	Douglas	Daily	Douglas	n/a	n/a	Douglas	2

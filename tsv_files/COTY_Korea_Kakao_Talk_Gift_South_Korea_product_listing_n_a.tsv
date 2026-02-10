@@ -1,0 +1,3 @@
+Base_ID	url	domain	webMethod	type	pageDepth	gatewayType	validateParsedOutput	fetchNextCrawlUrl	uniqueIdentifier	region_input	search_keyword	Channel	scope_name	category_input	Top_Category_LVMH	Category_LVMH	Sub_Category_LVMH	Project	Batch	SubBatch	Scrape_Frequency	Partner_Name	ip_search_keyword_category	ip_filter_by_category	site_name	no_of_pages
+333	n/a	kakao	get	product_listing	product_listing	PLAYWRIGHT	False	True	333	KR	n/a	n/a	COTY_Korea	n/a	n/a	n/a	n/a	COTY_Korea	South Korea	Kakao Talk Gift	Daily	Kakao Talk Gift	n/a	n/a	Kakao Talk Gift	0
+334	n/a	kakao	get	product_listing	product_listing	PLAYWRIGHT	False	True	334	KR	n/a	n/a	COTY_Korea_Prestige	n/a	n/a	n/a	n/a	COTY_Korea_Prestige	South Korea	Kakao Talk Gift	Daily	Kakao Talk Gift	n/a	n/a	Kakao Talk Gift	0
