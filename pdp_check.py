@@ -169,6 +169,32 @@ def compute_ip_counts_excel(fp: Path, scopes_in_output: set):
     wb.close()
     return counts, total_rows, kept_rows, (header[scope_idx], header[rname_idx])
 
+def compute_ip_counts_pandas_excel(fp: Path, scopes_in_output: set):
+    display = display_name(fp)
+    print(f"⏳ Loading Excel (pandas usecols): {display}", flush=True)
+    header_df = pd.read_excel(fp, nrows=0)
+    header_cols = [c.strip().lower() for c in header_df.columns]
+    scope_col = "scope" if "scope" in header_cols else ("scope_name" if "scope_name" in header_cols else None)
+    rname_col = "rname" if "rname" in header_cols else ("domain_input" if "domain_input" in header_cols else None)
+
+    if scope_col is None or rname_col is None:
+        return None, None, None, None
+
+    df_ip = pd.read_excel(fp, dtype=str, keep_default_na=False, usecols=[scope_col, rname_col])
+    total_rows = len(df_ip)
+    df_ip.columns = [c.strip().lower() for c in df_ip.columns]
+    if "scope" not in df_ip.columns and "scope_name" in df_ip.columns:
+        df_ip = df_ip.rename(columns={"scope_name": "scope"})
+    if "rname" not in df_ip.columns and "domain_input" in df_ip.columns:
+        df_ip = df_ip.rename(columns={"domain_input": "rname"})
+
+    if scopes_in_output:
+        df_ip = df_ip[df_ip["scope"].isin(scopes_in_output)]
+    kept_rows = len(df_ip)
+    ip_key = list(zip(df_ip["scope"].astype(str).str.strip(), df_ip["rname"].astype(str).str.strip()))
+    counts = pd.Series(ip_key).value_counts().to_dict()
+    return counts, total_rows, kept_rows, (scope_col, rname_col)
+
 def is_na_text(val: str) -> bool:
     if val is None:
         return True
@@ -214,7 +240,10 @@ if is_excel_display(IP_FILE):
     excel_path = excel_compatible_path(IP_FILE)
     if excel_path is not None:
         t0 = time.perf_counter()
-        ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
+        ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_pandas_excel(excel_path, scopes_in_output)
+        if ip_counts_precomputed is None:
+            print("⚠️ Pandas Excel load failed to find scope/rname columns. Falling back to streaming.", flush=True)
+            ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
     else:
         ip_counts_precomputed, total_rows, kept_rows, ip_cols = None, None, None, None
     if ip_counts_precomputed is None:
