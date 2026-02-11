@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from datetime import datetime
 import os
+import time
 
 print("=== PDP CHECKLIST STARTED ===", flush=True)
 
@@ -45,14 +46,17 @@ def read_file(fp: Path) -> pd.DataFrame:
 
     # If original filename indicates Excel, prefer read_excel regardless of local suffix
     if display_lower.endswith((".xlsx", ".xls")):
+        print(f"⏳ Loading Excel: {display}", flush=True)
         return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
     if suffix == ".tsv" or display_lower.endswith(".tsv"):
         try:
+            print(f"⏳ Loading TSV: {display}", flush=True)
             return pd.read_csv(fp, sep="\t", dtype=str, encoding="utf-8", keep_default_na=False)
         except UnicodeDecodeError:
             print(f"⚠️ WARNING: {display} is not UTF-8. Reading as latin1 (may corrupt data).")
             try:
+                print(f"⏳ Loading TSV (latin1): {display}", flush=True)
                 return pd.read_csv(fp, sep="\t", dtype=str, encoding="latin1", keep_default_na=False)
             except pd.errors.ParserError:
                 print(f"⚠️ WARNING: {display} has malformed lines. Retrying with python engine and skipping bad lines.")
@@ -77,7 +81,9 @@ def read_file(fp: Path) -> pd.DataFrame:
                 on_bad_lines="skip"
             )
     if suffix == ".csv" or display_lower.endswith(".csv"):
+        print(f"⏳ Loading CSV: {display}", flush=True)
         return pd.read_csv(fp, dtype=str, keep_default_na=False)
+    print(f"⏳ Loading file: {display}", flush=True)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
 def is_na_text(val: str) -> bool:
@@ -95,9 +101,17 @@ def series_is_na(s: pd.Series) -> pd.Series:
     return s.isna() | s.astype(str).str.strip().str.lower().isin({"", "n/a", "na", "null", "nan"})
 
 # ================= LOAD FILES =================
+t0 = time.perf_counter()
 df = read_file(OP_FILE)
+print(f"✅ Loaded OP in {time.perf_counter() - t0:.2f}s | rows={len(df)}", flush=True)
+
+t0 = time.perf_counter()
 ip_df = read_file(IP_FILE)
+print(f"✅ Loaded IP in {time.perf_counter() - t0:.2f}s | rows={len(ip_df)}", flush=True)
+
+t0 = time.perf_counter()
 master_df = read_file(MASTER_FILE)
+print(f"✅ Loaded MASTER in {time.perf_counter() - t0:.2f}s | rows={len(master_df)}", flush=True)
 
 # Normalize column names
 df.columns = [c.strip().lower() for c in df.columns]
@@ -122,6 +136,7 @@ print("🔎 Scopes found in output:", scopes_in_output)
 # Filter input by scopes found in output
 if "scope" in ip_df.columns:
     ip_df = ip_df[ip_df["scope"].isin(scopes_in_output)]
+print(f"✅ IP rows after scope filter: {len(ip_df)}", flush=True)
 
 print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df)} | Master Rows: {len(master_df)}")
 
