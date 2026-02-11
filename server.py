@@ -73,9 +73,30 @@ def log(run_id: str, level: str, message: str):
 
 
 def download_from_storage(bucket, storage_path, local_path):
-    data = supabase.storage.from_(bucket).download(storage_path)
-    with open(local_path, "wb") as f:
-        f.write(data)
+    def _download(path):
+        data = supabase.storage.from_(bucket).download(path)
+        if isinstance(data, dict) and data.get("statusCode"):
+            raise Exception(data)
+        if data is None or data == b"":
+            raise Exception({"statusCode": 404, "error": "not_found", "message": "Empty response"})
+        return data
+
+    tried = []
+    last_error = None
+
+    for path in [storage_path, os.path.basename(storage_path)]:
+        if not path or path in tried:
+            continue
+        tried.append(path)
+        try:
+            data = _download(path)
+            with open(local_path, "wb") as f:
+                f.write(data)
+            return path
+        except Exception as e:
+            last_error = e
+
+    raise Exception(f"Download failed for bucket '{bucket}'. Tried: {tried}. Last error: {last_error}")
 
 
 def upload_to_storage(bucket, storage_path, local_path):
@@ -476,6 +497,11 @@ def execute_pdp_run(run_id: str):
         log(run_id, "INFO", f"OP file: {run['op_filename']}")
         log(run_id, "INFO", f"IP file: {run['ip_filename']}")
         log(run_id, "INFO", f"MASTER file: {run['master_filename']}")
+
+        if not run.get("op_filename") or not run.get("ip_filename") or not run.get("master_filename"):
+            raise Exception("Missing input files in DB")
+
+        log(run_id, "INFO", "Downloading input files")
 
         download_from_storage(
             "pdp-input",
