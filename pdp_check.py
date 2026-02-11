@@ -310,6 +310,13 @@ base_columns = list(df.columns)
 scopes_in_output = set(df["scope"].dropna().astype(str).str.strip())
 print("🔎 Scopes found in output:", scopes_in_output)
 
+# Primary scope key (prefix before first underscore)
+scope_key_main = ""
+for s in scopes_in_output:
+    scope_key_main = scope_key_from_value(s)
+    if scope_key_main:
+        break
+
 # ================= LOAD INPUT (FAST PATH FOR EXCEL) =================
 ip_df = None
 ip_counts_precomputed = None
@@ -744,11 +751,8 @@ REQUIRED_COLUMNS_BY_SCOPE = {
 
 scope_values = set(df.get("scope", pd.Series([""])).astype(str).str.strip())
 required_columns = None
-scope_key_main = ""
 for s in scope_values:
     scope_key = scope_key_from_value(s)
-    if not scope_key_main:
-        scope_key_main = scope_key
     for k, cols in REQUIRED_COLUMNS_BY_SCOPE.items():
         if k.lower() == scope_key:
             required_columns = cols
