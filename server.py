@@ -521,6 +521,20 @@ def execute_pdp_run(run_id: str):
             master_local
         )
 
+        # If input is Excel, convert locally to CSV for faster reads (do not upload)
+        ip_filename = run.get("ip_filename", "") or ""
+        if ip_filename.lower().endswith((".xlsx", ".xls")):
+            try:
+                import pandas as pd
+                ip_csv_local = os.path.join(run_dir, "pdp_input.csv")
+                log(run_id, "INFO", "Converting input Excel to CSV (local)")
+                df_ip = pd.read_excel(ip_local, dtype=str, keep_default_na=False)
+                df_ip.to_csv(ip_csv_local, index=False)
+                ip_local = ip_csv_local
+                log(run_id, "INFO", "Input Excel converted to CSV (local)")
+            except Exception as e:
+                log(run_id, "ERROR", f"Excel to CSV conversion failed, using original file. {str(e)}")
+
         log(run_id, "INFO", "All files downloaded")
 
         # -----------------------------
