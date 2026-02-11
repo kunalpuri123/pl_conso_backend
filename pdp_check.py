@@ -42,14 +42,23 @@ for fp, label in [(OP_FILE, "Output"), (IP_FILE, "Input"), (MASTER_FILE, "Master
 def is_excel_display(fp: Path) -> bool:
     return display_name(fp).lower().endswith((".xlsx", ".xls"))
 
+def is_excel_file(fp: Path) -> bool:
+    try:
+        with open(fp, "rb") as f:
+            sig = f.read(8)
+        # XLSX is a zip archive (PK\x03\x04). XLS (OLE) starts with D0 CF 11 E0 A1 B1 1A E1
+        return sig.startswith(b"PK\x03\x04") or sig.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1")
+    except Exception:
+        return False
+
 # ================= FILE HELPERS =================
 def read_file(fp: Path) -> pd.DataFrame:
     display = display_name(fp)
     display_lower = display.lower()
     suffix = fp.suffix.lower()
 
-    # If original filename indicates Excel, prefer read_excel regardless of local suffix
-    if display_lower.endswith((".xlsx", ".xls")):
+    # If original filename indicates Excel, prefer read_excel only if file signature matches
+    if display_lower.endswith((".xlsx", ".xls")) and is_excel_file(fp):
         # If this is the input file, load only needed columns to speed up
         if fp == IP_FILE:
             print(f"⏳ Loading Excel (header only): {display}", flush=True)
@@ -179,7 +188,7 @@ print("🔎 Scopes found in output:", scopes_in_output)
 ip_df = None
 ip_counts_precomputed = None
 
-if is_excel_display(IP_FILE):
+if is_excel_display(IP_FILE) and is_excel_file(IP_FILE):
     t0 = time.perf_counter()
     ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(IP_FILE, scopes_in_output)
     if ip_counts_precomputed is None:
