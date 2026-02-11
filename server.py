@@ -84,6 +84,13 @@ def upload_to_storage(bucket, storage_path, local_path):
 
     print("UPLOAD RESULT:", res)   # 🔥 add this
 
+def remove_from_buckets(storage_path, buckets):
+    for b in buckets:
+        try:
+            supabase.storage.from_(b).remove([storage_path])
+        except:
+            pass
+
 
 
 # =========================================================
@@ -430,6 +437,169 @@ def execute_input_run(run_id: str):
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
 
+def execute_pdp_run(run_id: str):
+
+    run_dir = os.path.join(BASE_WORKDIR, f"pdp_run_{run_id}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    try:
+        # -----------------------------
+        # 1. mark running
+        # -----------------------------
+        supabase.table("runs").update({
+            "status": "running",
+            "start_time": datetime.utcnow().isoformat()
+        }).eq("id", run_id).execute()
+
+        run = (
+            supabase.table("runs")
+            .select("*")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
+
+        log(run_id, "INFO", "PDP check started")
+
+        # -----------------------------
+        # 2. local paths
+        # -----------------------------
+        op_local = os.path.join(run_dir, "pdp_output.tsv")
+        ip_local = os.path.join(run_dir, "pdp_input.tsv")
+        master_local = os.path.join(run_dir, "pdp_master.csv")
+        output_local = os.path.join(run_dir, "pdp_output.xlsx")
+
+        # -----------------------------
+        # 3. download files
+        # -----------------------------
+        download_from_storage(
+            "pdp-input",
+            run["op_filename"],
+            op_local
+        )
+
+        download_from_storage(
+            "pdp-crawl-input",
+            run["ip_filename"],
+            ip_local
+        )
+
+        download_from_storage(
+            "pdp-masters",
+            run["master_filename"],
+            master_local
+        )
+
+        log(run_id, "INFO", "All files downloaded")
+
+        # -----------------------------
+        # 4. run python script
+        # -----------------------------
+        process = subprocess.Popen(
+            [
+                "python",
+                "-u",
+                "pdp_check.py",
+                op_local,
+                ip_local,
+                master_local,
+                output_local
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+        supabase.table("runs").update({
+            "process_pid": process.pid
+        }).eq("id", run_id).execute()
+
+        for line in process.stdout:
+            log(run_id, "INFO", line.rstrip())
+
+        process.wait()
+
+        if process.returncode == -9:
+            log(run_id, "INFO", "Run cancelled by user")
+            return
+
+        if process.returncode != 0:
+            raise Exception("Script failed")
+
+        # -----------------------------
+        # 5. AI analysis
+        # -----------------------------
+        try:
+            log(run_id, "INFO", "Sending output to AI")
+
+            ai_report = analyze_output_with_gemini(output_local)
+
+            supabase.table("run_ai_reports").insert({
+                "run_id": run_id,
+                "report_json": ai_report,
+                "summary": ai_report.get("summary"),
+                "accuracy": ai_report.get("accuracy"),
+                "verdict": ai_report.get("verdict")
+            }).execute()
+
+            log(run_id, "INFO", "AI report generated")
+
+        except Exception as e:
+            log(run_id, "ERROR", f"AI failed: {str(e)}")
+
+        # -----------------------------
+        # 6. upload result
+        # -----------------------------
+        output_filename = f"{run['run_uuid']}.xlsx"
+
+        upload_to_storage(
+            "pdp-run-output",
+            output_filename,
+            output_local
+        )
+
+        supabase.table("run_files").insert({
+            "run_id": run_id,
+            "filename": output_filename,
+            "file_type": "FINAL_OUTPUT",
+            "storage_path": output_filename
+        }).execute()
+
+        # -----------------------------
+        # 7. mark completed
+        # -----------------------------
+        supabase.table("runs").update({
+            "status": "completed",
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
+        }).eq("id", run_id).execute()
+
+        log(run_id, "INFO", "PDP check completed")
+
+    except Exception as e:
+        log(run_id, "ERROR", str(e))
+
+        current = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
+
+        if current and current["status"] == "cancelled":
+            return
+
+        supabase.table("runs").update({
+            "status": "failed",
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
+        }).eq("id", run_id).execute()
+
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
 
 # =========================================================
 # API
@@ -547,6 +717,44 @@ def rerun_input(run_id: str, bg: BackgroundTasks):
 
     return {"status": "input_rerun_started"}
 
+@app.post("/pdp-run/{run_id}")
+def start_pdp_run(run_id: str, bg: BackgroundTasks):
+    bg.add_task(execute_pdp_run, run_id)
+    return {"status": "started"}
+
+@app.post("/pdp-run/{run_id}/rerun")
+def rerun_pdp(run_id: str, bg: BackgroundTasks):
+
+    old = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
+    new = (
+        supabase.table("runs")
+        .insert({
+            "user_id": old["user_id"],
+            "project_id": old["project_id"],
+            "site_id": old["site_id"],
+            "scope": old["scope"],
+            "op_filename": old["op_filename"],
+            "ip_filename": old["ip_filename"],
+            "master_filename": old["master_filename"],
+            "status": "pending",
+            "automation_slug": old["automation_slug"]
+        })
+        .execute()
+        .data[0]
+    )
+
+    bg.add_task(execute_pdp_run, new["id"])
+
+    return {"status": "pdp_rerun_started"}
+
 # =========================================================
 # UNIVERSAL DELETE RUN (PL CONSO + PL INPUT)
 # =========================================================
@@ -590,10 +798,10 @@ def cancel_run(run_id: str):
     )
 
     for f in files or []:
-        try:
-            supabase.storage.from_("run-outputs").remove([f["storage_path"]])
-        except:
-            pass
+        remove_from_buckets(
+            f["storage_path"],
+            ["run-outputs", "input-creation-output", "pdp-run-output"]
+        )
 
     # -------------------------
     # 3. CLEAN CHILD TABLES
@@ -612,6 +820,43 @@ def cancel_run(run_id: str):
     }).eq("id", run_id).execute()
 
     return {"status": "cancelled"}
+
+@app.post("/runs/{run_id}/delete")
+def delete_run(run_id: str):
+
+    run = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .single()
+        .execute()
+        .data
+    )
+
+    if not run:
+        return {"error": "Run not found"}
+
+    files = (
+        supabase.table("run_files")
+        .select("*")
+        .eq("run_id", run_id)
+        .execute()
+        .data
+    )
+
+    for f in files or []:
+        remove_from_buckets(
+            f["storage_path"],
+            ["run-outputs", "input-creation-output", "pdp-run-output"]
+        )
+
+    supabase.table("run_logs").delete().eq("run_id", run_id).execute()
+    supabase.table("run_files").delete().eq("run_id", run_id).execute()
+    supabase.table("run_ai_reports").delete().eq("run_id", run_id).execute()
+
+    supabase.table("runs").delete().eq("id", run_id).execute()
+
+    return {"status": "deleted"}
 
 if __name__ == "__main__":
     import uvicorn
