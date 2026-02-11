@@ -153,7 +153,8 @@ def compute_ip_counts_excel(fp: Path, scopes_in_output: set):
     total_rows = 0
     kept_rows = 0
 
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    max_col = max(scope_idx, rname_idx) + 1
+    for row in ws.iter_rows(min_row=2, max_col=max_col, values_only=True):
         total_rows += 1
         scope_val = row[scope_idx]
         if scope_val is None:

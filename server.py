@@ -550,10 +550,11 @@ def execute_pdp_run(run_id: str):
                 if scope_idx is None or rname_idx is None:
                     raise Exception("Required columns not found in input Excel")
 
+                max_col = max(scope_idx, rname_idx) + 1
                 with open(ip_csv_local, "w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerow(["scope_name", "domain_input"])
-                    for row in ws.iter_rows(min_row=2, values_only=True):
+                    for row in ws.iter_rows(min_row=2, max_col=max_col, values_only=True):
                         scope_val = row[scope_idx]
                         rname_val = row[rname_idx]
                         writer.writerow([
