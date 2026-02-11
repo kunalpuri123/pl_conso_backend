@@ -18,16 +18,19 @@ IP_FILE = Path(sys.argv[2])   # crawl input (consolidated)
 MASTER_FILE = Path(sys.argv[3])
 OUTPUT_FILE = Path(sys.argv[4])
 
-print(f"📄 Output File : {OP_FILE}")
-print(f"📄 Input File  : {IP_FILE}")
-print(f"📄 Master File : {MASTER_FILE}")
-print(f"📄 Result File : {OUTPUT_FILE}")
-
 DISPLAY_NAMES = {
     str(OP_FILE): os.environ.get("PDP_OP_NAME", ""),
     str(IP_FILE): os.environ.get("PDP_IP_NAME", ""),
     str(MASTER_FILE): os.environ.get("PDP_MASTER_NAME", ""),
 }
+
+def display_name(fp: Path) -> str:
+    return DISPLAY_NAMES.get(str(fp), "") or fp.name
+
+print(f"📄 Output File : {display_name(OP_FILE)}")
+print(f"📄 Input File  : {display_name(IP_FILE)}")
+print(f"📄 Master File : {display_name(MASTER_FILE)}")
+print(f"📄 Result File : {OUTPUT_FILE}")
 
 for fp, label in [(OP_FILE, "Output"), (IP_FILE, "Input"), (MASTER_FILE, "Master")]:
     if not fp.exists():
@@ -36,8 +39,15 @@ for fp, label in [(OP_FILE, "Output"), (IP_FILE, "Input"), (MASTER_FILE, "Master
 
 # ================= FILE HELPERS =================
 def read_file(fp: Path) -> pd.DataFrame:
-    display = DISPLAY_NAMES.get(str(fp), "") or fp.name
-    if fp.suffix == ".tsv":
+    display = display_name(fp)
+    display_lower = display.lower()
+    suffix = fp.suffix.lower()
+
+    # If original filename indicates Excel, prefer read_excel regardless of local suffix
+    if display_lower.endswith((".xlsx", ".xls")):
+        return pd.read_excel(fp, dtype=str, keep_default_na=False)
+
+    if suffix == ".tsv" or display_lower.endswith(".tsv"):
         try:
             return pd.read_csv(fp, sep="\t", dtype=str, encoding="utf-8", keep_default_na=False)
         except UnicodeDecodeError:
@@ -66,7 +76,7 @@ def read_file(fp: Path) -> pd.DataFrame:
                 engine="python",
                 on_bad_lines="skip"
             )
-    if fp.suffix == ".csv":
+    if suffix == ".csv" or display_lower.endswith(".csv"):
         return pd.read_csv(fp, dtype=str, keep_default_na=False)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
