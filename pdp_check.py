@@ -134,7 +134,7 @@ def read_file(fp: Path) -> pd.DataFrame:
     print(f"⏳ Loading file: {display}", flush=True)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
-def compute_ip_counts_excel(fp: Path, scopes_in_output: set):
+def compute_ip_counts_excel(fp: Path, scopes_in_output: set | None):
     display = display_name(fp)
     print(f"⏳ Streaming Excel for counts: {display}", flush=True)
     wb = load_workbook(fp, read_only=True, data_only=True)
@@ -171,7 +171,7 @@ def compute_ip_counts_excel(fp: Path, scopes_in_output: set):
     wb.close()
     return counts, total_rows, kept_rows, (header[scope_idx], header[rname_idx])
 
-def compute_ip_counts_pandas_excel(fp: Path, scopes_in_output: set):
+def compute_ip_counts_pandas_excel(fp: Path, scopes_in_output: set | None):
     display = display_name(fp)
     print(f"⏳ Loading Excel (pandas usecols): {display}", flush=True)
     header_df = pd.read_excel(fp, nrows=0)
@@ -252,6 +252,8 @@ ip_df = None
 ip_counts_precomputed = None
 cache_loaded = False
 cache_path = os.getenv("PDP_IP_COUNTS_CACHE", "").strip()
+cache_write = os.getenv("PDP_IP_COUNTS_CACHE_WRITE", "").strip()
+want_full_cache = bool(cache_write)
 if cache_path and os.path.exists(cache_path):
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
@@ -267,18 +269,19 @@ if is_excel_display(IP_FILE):
     if excel_path is not None:
         t0 = time.perf_counter()
         use_pandas_excel = os.getenv("PDP_EXCEL_PANDAS", "0").strip() == "1"
+        scopes_for_count = None if (want_full_cache and not cache_loaded) else scopes_in_output
         if use_pandas_excel and not cache_loaded:
-            ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_pandas_excel(excel_path, scopes_in_output)
+            ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_pandas_excel(excel_path, scopes_for_count)
             if ip_counts_precomputed is None:
                 print("⚠️ Pandas Excel load failed to find scope/rname columns. Falling back to streaming.", flush=True)
-                ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
+                ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_for_count)
         elif not cache_loaded:
-            ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
+            ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_for_count)
     else:
         ip_counts_precomputed, total_rows, kept_rows, ip_cols = None, None, None, None
     if ip_counts_precomputed is None:
         print("⚠️ Excel streaming failed to find scope/rname columns. Falling back to full load.", flush=True)
-    else:
+    elif not cache_loaded:
         print(f"✅ Streamed IP in {time.perf_counter() - t0:.2f}s | rows={total_rows} | kept={kept_rows} | cols={ip_cols}", flush=True)
 
 if ip_counts_precomputed is None:
@@ -302,7 +305,6 @@ if ip_counts_precomputed is None:
 print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df) if ip_df is not None else 'streamed'} | Master Rows: {len(master_df)}")
 
 # Write cache if requested and computed
-cache_write = os.getenv("PDP_IP_COUNTS_CACHE_WRITE", "").strip()
 if cache_write and ip_counts_precomputed is not None and not cache_loaded:
     try:
         payload = {
