@@ -282,6 +282,12 @@ print(f"✅ Loaded MASTER in {time.perf_counter() - t0:.2f}s | rows={len(master_
 df.columns = [c.strip().lower() for c in df.columns]
 master_df.columns = [c.strip().lower() for c in master_df.columns]
 
+def scope_key_from_value(val: str) -> str:
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    return s.split("_")[0].strip().lower()
+
 # Benefit-specific column aliases (apply to all checks)
 benefit_scope = any(scope_key_from_value(s) == "benefit" for s in df.get("scope", pd.Series([""])).astype(str).str.strip())
 if benefit_scope:
@@ -300,12 +306,6 @@ for col in required_cols:
         sys.exit(1)
 
 base_columns = list(df.columns)
-
-def scope_key_from_value(val: str) -> str:
-    s = str(val or "").strip()
-    if not s:
-        return ""
-    return s.split("_")[0].strip().lower()
 
 scopes_in_output = set(df["scope"].dropna().astype(str).str.strip())
 print("🔎 Scopes found in output:", scopes_in_output)
