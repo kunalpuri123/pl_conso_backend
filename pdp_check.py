@@ -244,6 +244,14 @@ for col in required_cols:
         print(f"❌ Output file missing '{col}' column")
         sys.exit(1)
 
+base_columns = list(df.columns)
+
+def scope_key_from_value(val: str) -> str:
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    return s.split("_")[0].strip().lower()
+
 scopes_in_output = set(df["scope"].dropna().astype(str).str.strip())
 print("🔎 Scopes found in output:", scopes_in_output)
 
@@ -429,6 +437,9 @@ df.loc[mask_out & (availability != "No"), "availability_check"] = "FAIL"
 def is_not_available_series(s: pd.Series) -> pd.Series:
     return s.astype(str).str.strip().str.lower() == "not available"
 
+def is_na_or_not_available_series(s: pd.Series) -> pd.Series:
+    return series_is_na(s) | is_not_available_series(s)
+
 na_cols = []
 for c in ["regularprice", "finalprice", "markdown_price", "item_status", "rating", "review", "availability"]:
     if c in df.columns:
@@ -442,6 +453,55 @@ if na_cols:
 else:
     df["stock_na_check"] = "PASS"
 
+# ================= NOT AVAILABLE VALUE CHECK =================
+NOT_AVAILABLE_REQUIRED_BY_SCOPE = {
+    "hermes": ["top_category","category","sub_category","RName","country","SKUVARIENT","PName","Brand","Date","scope","base_id"],
+    "coty": ["top_category","category","sub_category","RName","country","SKUVARIENT","Date","scope","base_id","url"],
+    "mfk": ["top_category","category","sub_category","RName","country","SKUVARIENT","PName","Brand","Date","scope","base_id"],
+    "pcd": ["top_category","category","sub_category","RName","country","SKUVARIENT","PName","Brand","Date","scope","base_id","url"],
+}
+ALLOWED_NA_REQUIRED_BY_SCOPE = {
+    "pcd": {"url"},
+}
+
+scope_name = df.get("scope", pd.Series([""])).astype(str).str.strip().iloc[0] if len(df) else ""
+scope_key = scope_key_from_value(scope_name)
+required_na_cols = NOT_AVAILABLE_REQUIRED_BY_SCOPE.get(scope_key)
+df["not_available_values_check"] = "PASS"
+
+if required_na_cols:
+    na_mask = stock_status.str.strip().str.lower() == "not available"
+    if na_mask.any():
+        col_map = {c.lower(): c for c in base_columns}
+        required_na_lower = [c.lower() for c in required_na_cols]
+        allowed_na = {c.lower() for c in ALLOWED_NA_REQUIRED_BY_SCOPE.get(scope_key, set())}
+
+        required_actual = []
+        missing_required = []
+        for req_l in required_na_lower:
+            actual = col_map.get(req_l)
+            if actual:
+                required_actual.append(actual)
+            else:
+                missing_required.append(req_l)
+
+        fail_mask = pd.Series(False, index=df.index)
+        if missing_required:
+            fail_mask |= na_mask
+
+        # Required columns should NOT be not available (except allowed)
+        for col in required_actual:
+            if col.lower() in allowed_na:
+                continue
+            fail_mask |= na_mask & is_na_or_not_available_series(df[col])
+
+        # Non-required columns should be not available
+        other_cols = [c for c in base_columns if c.lower() not in set(required_na_lower)]
+        for col in other_cols:
+            fail_mask |= na_mask & ~is_na_or_not_available_series(df[col])
+
+        df.loc[fail_mask, "not_available_values_check"] = "FAIL"
+
 # ================= RATING CHECK =================
 rating = df.get("rating", pd.Series([""] * len(df))).astype(str).str.strip()
 review = df.get("review", pd.Series([""] * len(df))).astype(str).str.strip()
@@ -449,9 +509,11 @@ review = df.get("review", pd.Series([""] * len(df))).astype(str).str.strip()
 df["rating_check"] = "PASS"
 
 rating_is_na = rating.apply(is_na_text) | rating.apply(is_not_available)
-rating_numeric_ok = rating.str.match(r"^[0-9]+(\\.[0-9]+)?$", na=False)
+# normalize decimal comma and remove stray spaces
+rating_norm = rating.str.replace(",", ".", regex=False).str.strip()
+rating_numeric_ok = rating_norm.str.match(r"^[0-9]+(\.[0-9]+)?$", na=False)
 
-rating_val = pd.to_numeric(rating.where(rating_numeric_ok, np.nan), errors="coerce")
+rating_val = pd.to_numeric(rating_norm.where(rating_numeric_ok, np.nan), errors="coerce")
 rating_in_range = (rating_val >= 0) & (rating_val <= 5)
 
 review_val = pd.to_numeric(review, errors="coerce").fillna(0)
@@ -466,6 +528,88 @@ df.loc[~mask_stock_na & (~rating_numeric_ok | ~rating_in_range), "rating_check"]
 df.loc[(review_val > 0) & rating_is_na, "rating_check"] = "FAIL"
 
 # ================= FAILURE REASON =================
+REQUIRED_COLUMNS_BY_SCOPE = {
+    # MFK and PCD scopes
+    "MFK": [
+        "top_category","category","sub_category","pid","key","RName","country","MPN","SKUVARIENT","SKUL","PName",
+        "Division","Category","Department","Class","SubClass","Brand","RegularPrice","FinalPrice","PriceRange",
+        "Availability","Rating","Review","Promotion","Position","Channel","currency","ProductImage","KeyWords",
+        "day","month","year","Date","scope","Product_Description","base_id","region_input","currency_input",
+        "stock_status","item_status","markdown_price","url","category_path","add_to_cart","multiple_url",
+        "large_image","small_image","normalized_Brand","spid"
+    ],
+    "PCD": [
+        "top_category","category","sub_category","pid","key","RName","country","MPN","SKUVARIENT","SKUL","PName",
+        "Division","Category","Department","Class","SubClass","Brand","RegularPrice","FinalPrice","PriceRange",
+        "Availability","Rating","Review","Promotion","Position","Channel","currency","ProductImage","KeyWords",
+        "day","month","year","Date","scope","Product_Description","base_id","region_input","currency_input",
+        "stock_status","item_status","markdown_price","url","category_path","add_to_cart","multiple_url",
+        "large_image","small_image","normalized_Brand","spid"
+    ],
+    "Benefit": [
+        "site_name","category_path","category_path_url","division","category","department","class","subclass",
+        "product_id","product_name","product_description","product_dimensions","product_weight","product_material",
+        "url","product_image","regular_price","regular_price_range","shipping_price","markdown_price",
+        "disounted_price","final_price","item_status","item_level_status","features","color","price_by_size",
+        "additional_information","promo_message","price_promo","promo_description","online_exclusive",
+        "extraction_date","image_url_large","image_url_small","base_unique_identifier","mpn","page_title",
+        "pack_quantity","brand","shipping_text","reviews_count","average_rating","upc","technical_details",
+        "meta_keywords","stock_availability","page_snapshot","item_condition","no_of_watchers","stock_status",
+        "shipping_areas","shipping_weight","meta_description","canonical_url","meta_title","videos","add_on_item",
+        "saleable_quantity","ship_surcharge","in_cart_price","add_to_cart_price","sku_variant","sku_id",
+        "variation_url","availability","Frequency","UOM","region_site","region_input","base_id","currency_input",
+        "scope","top_category","input_category","sub_category","images_chunk","Retailer","Project","Batch",
+        "SubBatch","input_url","spid","normalizedpname","top_sku","brand_Input","brand_group","sku_type",
+        "buffer_column_1","buffer_column_2","buffer_column_3","buffer_column_4","buffer_column_5"
+    ],
+    "COTY": [
+        "top_category","category","sub_category","pid","key","RName","country","MPN","SKUVARIENT","SKUL","PName",
+        "Division","Category","Department","Class","SubClass","Brand","RegularPrice","FinalPrice","PriceRange",
+        "Availability","Rating","Review","Promotion","Position","Channel","currency","ProductImage","KeyWords",
+        "day","month","year","Date","scope","Product_Description","base_id","region_input","currency_input",
+        "stock_status","item_status","markdown_price","url","category_path","add_to_cart","multiple_url",
+        "large_image","small_image","normalized_Brand","spid","video_from_carousel","video_from_body",
+        "pdp+_content","features","specifications","seller_name","asin","upc"
+    ],
+    "Hermes": [
+        "top_category","category","sub_category","pid","key","RName","country","MPN","SKUVARIENT","SKUL","PName",
+        "Division","Category","Department","Class","SubClass","Brand","RegularPrice","FinalPrice","PriceRange",
+        "Availability","Rating","Review","Promotion","Position","Channel","currency","ProductImage","KeyWords",
+        "day","month","year","Date","scope","Product_Description","base_id","region_input","currency_input",
+        "stock_status","item_status","markdown_price","url","category_path","add_to_cart","multiple_url",
+        "large_image","small_image","normalized_Brand","spid","video_from_carousel","video_from_body",
+        "pdp+_content","features","specifications","seller_name","asin","upc"
+    ]
+}
+
+scope_values = set(df.get("scope", pd.Series([""])).astype(str).str.strip())
+required_columns = None
+for s in scope_values:
+    scope_key = scope_key_from_value(s)
+    for k, cols in REQUIRED_COLUMNS_BY_SCOPE.items():
+        if k.lower() == scope_key:
+            required_columns = cols
+            break
+    if required_columns:
+        break
+
+if required_columns:
+    required_lower = [c.lower() for c in required_columns]
+    current_cols = list(df.columns)
+    current_lower = [c.lower() for c in current_cols]
+    missing_required = [req for req, req_l in zip(required_columns, required_lower) if req_l not in current_lower]
+    extra_current = [cur for cur, cur_l in zip(current_cols, current_lower) if cur_l not in set(required_lower)]
+    # sequence check: compare the sequence of required columns as they appear in current columns
+    current_required_sequence = [c for c in current_lower if c in set(required_lower)]
+    sequence_ok = current_required_sequence == required_lower
+    df["required_column_check"] = "PASS" if (len(missing_required) == 0 and sequence_ok) else "FAIL"
+    df["missing_columns_check"] = "PASS" if len(missing_required) == 0 else "FAIL"
+    df["extra_columns_check"] = "PASS" if len(extra_current) == 0 else "FAIL"
+else:
+    df["required_column_check"] = "PASS"
+    df["missing_columns_check"] = "PASS"
+    df["extra_columns_check"] = "PASS"
+
 FAILURE_MESSAGE_MAP = {
     "rname_check": "rname should match as per master",
     "country_check": "country should match as per master",
@@ -475,6 +619,10 @@ FAILURE_MESSAGE_MAP = {
     "availability_check": "availability should match stock status (In Stock/Out of Stock)",
     "stock_na_check": "Not available found in columns while stock status is In Stock/Out of Stock",
     "rating_check": "rating format or value is invalid",
+    "required_column_check": "all required columns not present",
+    "missing_columns_check": "missing required columns present",
+    "extra_columns_check": "extra columns present",
+    "not_available_values_check": "Not available rule failed",
 }
 
 check_cols = [c for c in FAILURE_MESSAGE_MAP.keys() if c in df.columns]
@@ -491,6 +639,24 @@ df.to_csv(OUTPUT_FILE.with_suffix(".csv"), index=False)
 
 with pd.ExcelWriter(OUTPUT_FILE, engine="xlsxwriter", engine_kwargs={"options": {"strings_to_urls": False}}) as writer:
     df.to_excel(writer, sheet_name="PDP_Data", index=False)
+    if required_columns:
+        current_cols = list(df.columns)
+        req_df = pd.DataFrame([{
+            "scope": next(iter(scope_values)) if scope_values else "",
+            "required_columns": ", ".join(required_columns),
+            "current_columns": ", ".join(current_cols),
+            "overall_status": "FAIL" if df["required_column_check"].iloc[0] == "FAIL" else "PASS",
+            "failure_message": "all required columns not present or order mismatch" if df["required_column_check"].iloc[0] == "FAIL" else ""
+        }])
+        req_df.to_excel(writer, sheet_name="Required_Columns_Check", index=False)
+        detail_df = pd.DataFrame([{
+            "scope": next(iter(scope_values)) if scope_values else "",
+            "missing_columns": ", ".join(missing_required) if required_columns else "",
+            "extra_columns": ", ".join(extra_current) if required_columns else "",
+            "missing_columns_check": df["missing_columns_check"].iloc[0],
+            "extra_columns_check": df["extra_columns_check"].iloc[0]
+        }])
+        detail_df.to_excel(writer, sheet_name="Missing_Extra_Columns", index=False)
 
 print(f"✅ OUTPUT GENERATED: {OUTPUT_FILE}")
 print("=== PDP CHECKLIST COMPLETED ===")
