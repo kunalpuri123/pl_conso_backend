@@ -11,6 +11,7 @@ import tempfile
 import os
 import shutil
 import signal
+import hashlib
 
 from pdf_report_generator import generate_pdf_from_ai_report
 from ai_analyzer import analyze_output_with_gemini
@@ -104,6 +105,13 @@ def upload_to_storage(bucket, storage_path, local_path):
         res = supabase.storage.from_(bucket).upload(storage_path, f)
 
     print("UPLOAD RESULT:", res)   # 🔥 add this
+
+def sha256_file(path, chunk_size=1024 * 1024):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 def remove_from_buckets(storage_path, buckets):
     for b in buckets:
@@ -521,9 +529,25 @@ def execute_pdp_run(run_id: str):
             master_local
         )
 
+        # -----------------------------
+        # 3b. cache lookup for input counts (by SHA256)
+        # -----------------------------
+        cache_bucket = "pdp-cache"
+        cache_hit_path = None
+        cache_key = None
+        try:
+            cache_key = f"{sha256_file(ip_local)}.json"
+            cache_local = os.path.join(run_dir, "pdp_ip_counts_cache.json")
+            log(run_id, "INFO", f"Looking for input counts cache: {cache_key}")
+            download_from_storage(cache_bucket, cache_key, cache_local)
+            cache_hit_path = cache_local
+            log(run_id, "INFO", "Input counts cache hit")
+        except Exception as e:
+            log(run_id, "INFO", f"No input counts cache (will compute). {str(e)}")
+
         # If input is Excel, convert locally to CSV for faster reads (do not upload)
         ip_filename = run.get("ip_filename", "") or ""
-        if ip_filename.lower().endswith((".xlsx", ".xls")):
+        if ip_filename.lower().endswith((".xlsx", ".xls")) and os.getenv("PDP_CONVERT_INPUT", "0").strip() == "1":
             try:
                 import csv
                 from openpyxl import load_workbook
@@ -590,7 +614,9 @@ def execute_pdp_run(run_id: str):
                 **os.environ,
                 "PDP_OP_NAME": run.get("op_filename", ""),
                 "PDP_IP_NAME": run.get("ip_filename", ""),
-                "PDP_MASTER_NAME": run.get("master_filename", "")
+                "PDP_MASTER_NAME": run.get("master_filename", ""),
+                "PDP_IP_COUNTS_CACHE": cache_hit_path or "",
+                "PDP_IP_COUNTS_CACHE_WRITE": os.path.join(run_dir, "pdp_ip_counts_cache.json") if cache_hit_path is None else ""
             }
         )
         supabase.table("runs").update({
@@ -608,6 +634,18 @@ def execute_pdp_run(run_id: str):
 
         if process.returncode != 0:
             raise Exception("Script failed")
+
+        # -----------------------------
+        # 4b. upload cache if computed
+        # -----------------------------
+        try:
+            if cache_key:
+                cache_local = os.path.join(run_dir, "pdp_ip_counts_cache.json")
+                if os.path.exists(cache_local) and os.path.getsize(cache_local) > 0:
+                    upload_to_storage(cache_bucket, cache_key, cache_local)
+                    log(run_id, "INFO", f"Input counts cache uploaded: {cache_key}")
+        except Exception as e:
+            log(run_id, "ERROR", f"Failed to upload input counts cache: {str(e)}")
 
         # -----------------------------
         # 5. AI analysis

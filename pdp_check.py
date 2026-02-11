@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import time
 from openpyxl import load_workbook
+import json
 
 print("=== PDP CHECKLIST STARTED ===", flush=True)
 
@@ -196,6 +197,19 @@ def compute_ip_counts_pandas_excel(fp: Path, scopes_in_output: set):
     counts = pd.Series(ip_key).value_counts().to_dict()
     return counts, total_rows, kept_rows, (scope_col, rname_col)
 
+def encode_counts(counts: dict) -> dict:
+    return {f"{k[0]}|||{k[1]}": v for k, v in counts.items()}
+
+def decode_counts(data: dict) -> dict:
+    counts = {}
+    for k, v in data.items():
+        if "|||" in k:
+            scope, rname = k.split("|||", 1)
+        else:
+            scope, rname = k, ""
+        counts[(scope, rname)] = int(v)
+    return counts
+
 def is_na_text(val: str) -> bool:
     if val is None:
         return True
@@ -236,14 +250,29 @@ print("🔎 Scopes found in output:", scopes_in_output)
 # ================= LOAD INPUT (FAST PATH FOR EXCEL) =================
 ip_df = None
 ip_counts_precomputed = None
+cache_loaded = False
+cache_path = os.getenv("PDP_IP_COUNTS_CACHE", "").strip()
+if cache_path and os.path.exists(cache_path):
+    try:
+        with open(cache_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        ip_counts_precomputed = decode_counts(payload.get("counts", {}))
+        cache_loaded = True
+        print("✅ Loaded input counts cache", flush=True)
+    except Exception as e:
+        print(f"⚠️ Failed to load input counts cache. {str(e)}", flush=True)
 
 if is_excel_display(IP_FILE):
     excel_path = excel_compatible_path(IP_FILE)
     if excel_path is not None:
         t0 = time.perf_counter()
-        ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_pandas_excel(excel_path, scopes_in_output)
-        if ip_counts_precomputed is None:
-            print("⚠️ Pandas Excel load failed to find scope/rname columns. Falling back to streaming.", flush=True)
+        use_pandas_excel = os.getenv("PDP_EXCEL_PANDAS", "0").strip() == "1"
+        if use_pandas_excel and not cache_loaded:
+            ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_pandas_excel(excel_path, scopes_in_output)
+            if ip_counts_precomputed is None:
+                print("⚠️ Pandas Excel load failed to find scope/rname columns. Falling back to streaming.", flush=True)
+                ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
+        elif not cache_loaded:
             ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
     else:
         ip_counts_precomputed, total_rows, kept_rows, ip_cols = None, None, None, None
@@ -271,6 +300,19 @@ if ip_counts_precomputed is None:
     print(f"✅ IP rows after scope filter: {len(ip_df)}", flush=True)
 
 print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df) if ip_df is not None else 'streamed'} | Master Rows: {len(master_df)}")
+
+# Write cache if requested and computed
+cache_write = os.getenv("PDP_IP_COUNTS_CACHE_WRITE", "").strip()
+if cache_write and ip_counts_precomputed is not None and not cache_loaded:
+    try:
+        payload = {
+            "counts": encode_counts(ip_counts_precomputed)
+        }
+        with open(cache_write, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        print("✅ Input counts cache written", flush=True)
+    except Exception as e:
+        print(f"⚠️ Failed to write input counts cache. {str(e)}", flush=True)
 
 # ================= MASTER MAP (scope → rname/country) =================
 valid_scope_rname = set()
