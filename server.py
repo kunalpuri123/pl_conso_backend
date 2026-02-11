@@ -525,13 +525,38 @@ def execute_pdp_run(run_id: str):
         ip_filename = run.get("ip_filename", "") or ""
         if ip_filename.lower().endswith((".xlsx", ".xls")):
             try:
-                import pandas as pd
+                import csv
+                from openpyxl import load_workbook
+
                 ip_csv_local = os.path.join(run_dir, "pdp_input.csv")
-                log(run_id, "INFO", "Converting input Excel to CSV (local)")
-                df_ip = pd.read_excel(ip_local, dtype=str, keep_default_na=False)
-                df_ip.to_csv(ip_csv_local, index=False)
+                log(run_id, "INFO", "Converting input Excel to CSV (local, streaming)")
+
+                wb = load_workbook(ip_local, read_only=True, data_only=True)
+                ws = wb.active
+
+                header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+                header = [str(v).strip().lower() if v is not None else "" for v in header_row]
+
+                scope_idx = header.index("scope") if "scope" in header else (header.index("scope_name") if "scope_name" in header else None)
+                rname_idx = header.index("rname") if "rname" in header else (header.index("domain_input") if "domain_input" in header else None)
+
+                if scope_idx is None or rname_idx is None:
+                    raise Exception("Required columns not found in input Excel")
+
+                with open(ip_csv_local, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["scope_name", "domain_input"])
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        scope_val = row[scope_idx]
+                        rname_val = row[rname_idx]
+                        writer.writerow([
+                            "" if scope_val is None else str(scope_val),
+                            "" if rname_val is None else str(rname_val)
+                        ])
+
+                wb.close()
                 ip_local = ip_csv_local
-                log(run_id, "INFO", "Input Excel converted to CSV (local)")
+                log(run_id, "INFO", "Input Excel converted to CSV (local, streaming)")
             except Exception as e:
                 log(run_id, "ERROR", f"Excel to CSV conversion failed, using original file. {str(e)}")
 
