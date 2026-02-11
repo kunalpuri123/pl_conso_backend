@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 import sys
 from datetime import datetime
+import os
 
 print("=== PDP CHECKLIST STARTED ===", flush=True)
 
@@ -22,6 +23,12 @@ print(f"📄 Input File  : {IP_FILE}")
 print(f"📄 Master File : {MASTER_FILE}")
 print(f"📄 Result File : {OUTPUT_FILE}")
 
+DISPLAY_NAMES = {
+    str(OP_FILE): os.environ.get("PDP_OP_NAME", ""),
+    str(IP_FILE): os.environ.get("PDP_IP_NAME", ""),
+    str(MASTER_FILE): os.environ.get("PDP_MASTER_NAME", ""),
+}
+
 for fp, label in [(OP_FILE, "Output"), (IP_FILE, "Input"), (MASTER_FILE, "Master")]:
     if not fp.exists():
         print(f"❌ {label} file not found: {fp}")
@@ -29,15 +36,16 @@ for fp, label in [(OP_FILE, "Output"), (IP_FILE, "Input"), (MASTER_FILE, "Master
 
 # ================= FILE HELPERS =================
 def read_file(fp: Path) -> pd.DataFrame:
+    display = DISPLAY_NAMES.get(str(fp), "") or fp.name
     if fp.suffix == ".tsv":
         try:
             return pd.read_csv(fp, sep="\t", dtype=str, encoding="utf-8", keep_default_na=False)
         except UnicodeDecodeError:
-            print(f"⚠️ WARNING: {fp.name} is not UTF-8. Reading as latin1 (may corrupt data).")
+            print(f"⚠️ WARNING: {display} is not UTF-8. Reading as latin1 (may corrupt data).")
             try:
                 return pd.read_csv(fp, sep="\t", dtype=str, encoding="latin1", keep_default_na=False)
             except pd.errors.ParserError:
-                print(f"⚠️ WARNING: {fp.name} has malformed lines. Retrying with python engine and skipping bad lines.")
+                print(f"⚠️ WARNING: {display} has malformed lines. Retrying with python engine and skipping bad lines.")
                 return pd.read_csv(
                     fp,
                     sep="\t",
@@ -48,7 +56,7 @@ def read_file(fp: Path) -> pd.DataFrame:
                     on_bad_lines="skip"
                 )
         except pd.errors.ParserError:
-            print(f"⚠️ WARNING: {fp.name} has malformed lines. Retrying with python engine and skipping bad lines.")
+            print(f"⚠️ WARNING: {display} has malformed lines. Retrying with python engine and skipping bad lines.")
             return pd.read_csv(
                 fp,
                 sep="\t",
@@ -85,6 +93,11 @@ master_df = read_file(MASTER_FILE)
 df.columns = [c.strip().lower() for c in df.columns]
 ip_df.columns = [c.strip().lower() for c in ip_df.columns]
 master_df.columns = [c.strip().lower() for c in master_df.columns]
+
+# Normalize common alternate column names
+if "scope" not in ip_df.columns and "scope_name" in ip_df.columns:
+    print("ℹ️ Renaming scope_name -> scope in INPUT file")
+    ip_df = ip_df.rename(columns={"scope_name": "scope"})
 
 # ================= REQUIRED BASE COLUMNS =================
 required_cols = ["scope", "rname", "country"]

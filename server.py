@@ -512,7 +512,13 @@ def execute_pdp_run(run_id: str):
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True
+            universal_newlines=True,
+            env={
+                **os.environ,
+                "PDP_OP_NAME": run.get("op_filename", ""),
+                "PDP_IP_NAME": run.get("ip_filename", ""),
+                "PDP_MASTER_NAME": run.get("master_filename", "")
+            }
         )
         supabase.table("runs").update({
             "process_pid": process.pid
