@@ -51,28 +51,50 @@ def is_excel_file(fp: Path) -> bool:
     except Exception:
         return False
 
+def excel_compatible_path(fp: Path) -> Path | None:
+    """
+    Ensure a path with an Excel-compatible extension if the content is Excel.
+    Returns a temp path if created, or the original path if already compatible.
+    """
+    excel_exts = {".xlsx", ".xlsm", ".xltx", ".xltm", ".xls"}
+    if fp.suffix.lower() in excel_exts:
+        return fp
+    if not is_excel_file(fp):
+        return None
+    tmp_path = fp.with_suffix(".xlsx")
+    try:
+        with open(fp, "rb") as src, open(tmp_path, "wb") as dst:
+            dst.write(src.read())
+        return tmp_path
+    except Exception:
+        return None
+
 # ================= FILE HELPERS =================
 def read_file(fp: Path) -> pd.DataFrame:
     display = display_name(fp)
     display_lower = display.lower()
     suffix = fp.suffix.lower()
 
-    # If original filename indicates Excel, prefer read_excel only if file signature matches
-    if display_lower.endswith((".xlsx", ".xls")) and is_excel_file(fp):
-        # If this is the input file, load only needed columns to speed up
-        if fp == IP_FILE:
-            print(f"⏳ Loading Excel (header only): {display}", flush=True)
-            header_df = pd.read_excel(fp, nrows=0)
-            header_cols = [c.strip().lower() for c in header_df.columns]
-            scope_col = "scope" if "scope" in header_cols else ("scope_name" if "scope_name" in header_cols else None)
-            rname_col = "rname" if "rname" in header_cols else ("domain_input" if "domain_input" in header_cols else None)
+    # If original filename indicates Excel, prefer read_excel only if content is Excel
+    if display_lower.endswith((".xlsx", ".xls")):
+        excel_path = excel_compatible_path(fp)
+        if excel_path is None:
+            pass
+        else:
+            # If this is the input file, load only needed columns to speed up
+            if fp == IP_FILE:
+                print(f"⏳ Loading Excel (header only): {display}", flush=True)
+                header_df = pd.read_excel(excel_path, nrows=0)
+                header_cols = [c.strip().lower() for c in header_df.columns]
+                scope_col = "scope" if "scope" in header_cols else ("scope_name" if "scope_name" in header_cols else None)
+                rname_col = "rname" if "rname" in header_cols else ("domain_input" if "domain_input" in header_cols else None)
 
-            if scope_col and rname_col:
-                print(f"⏳ Loading Excel (usecols={scope_col},{rname_col}): {display}", flush=True)
-                return pd.read_excel(fp, dtype=str, keep_default_na=False, usecols=[scope_col, rname_col])
+                if scope_col and rname_col:
+                    print(f"⏳ Loading Excel (usecols={scope_col},{rname_col}): {display}", flush=True)
+                    return pd.read_excel(excel_path, dtype=str, keep_default_na=False, usecols=[scope_col, rname_col])
 
-        print(f"⏳ Loading Excel: {display}", flush=True)
-        return pd.read_excel(fp, dtype=str, keep_default_na=False)
+            print(f"⏳ Loading Excel: {display}", flush=True)
+            return pd.read_excel(excel_path, dtype=str, keep_default_na=False)
 
     if suffix == ".tsv" or display_lower.endswith(".tsv"):
         try:
@@ -188,9 +210,13 @@ print("🔎 Scopes found in output:", scopes_in_output)
 ip_df = None
 ip_counts_precomputed = None
 
-if is_excel_display(IP_FILE) and is_excel_file(IP_FILE):
-    t0 = time.perf_counter()
-    ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(IP_FILE, scopes_in_output)
+if is_excel_display(IP_FILE):
+    excel_path = excel_compatible_path(IP_FILE)
+    if excel_path is not None:
+        t0 = time.perf_counter()
+        ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(excel_path, scopes_in_output)
+    else:
+        ip_counts_precomputed, total_rows, kept_rows, ip_cols = None, None, None, None
     if ip_counts_precomputed is None:
         print("⚠️ Excel streaming failed to find scope/rname columns. Falling back to full load.", flush=True)
     else:
