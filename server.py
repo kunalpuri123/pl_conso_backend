@@ -798,14 +798,24 @@ def download_ai_report_pdf(run_id: str):
 
 @app.get("/run/{run_id}/logs")
 def get_run_logs(run_id: str):
-    return (
-        supabase.table("run_logs")
-        .select("*")
-        .eq("run_id", run_id)
-        .order("created_at", desc=False)
-        .execute()
-        .data
-    )
+    try:
+        return (
+            supabase.table("run_logs")
+            .select("*")
+            .eq("run_id", run_id)
+            .order("created_at", desc=False)
+            .execute()
+            .data
+        )
+    except Exception:
+        return (
+            supabase.table("run_logs")
+            .select("*")
+            .eq("run_id", run_id)
+            .order("id", desc=False)
+            .execute()
+            .data
+        )
 
 @app.post("/input-run/{run_id}")
 def start_input_run(run_id: str, bg: BackgroundTasks):
