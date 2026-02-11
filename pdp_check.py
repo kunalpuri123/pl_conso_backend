@@ -71,6 +71,23 @@ def excel_compatible_path(fp: Path) -> Path | None:
         return None
 
 # ================= FILE HELPERS =================
+# Tolerant TSV reader that keeps all rows by padding/truncating to header length
+def read_tsv_tolerant(fp: Path, encoding: str = "utf-8") -> pd.DataFrame:
+    with open(fp, "r", encoding=encoding, errors="replace") as f:
+        header_line = f.readline().rstrip("\n")
+        headers = header_line.split("\t")
+        rows = []
+        for line in f:
+            line = line.rstrip("\n")
+            parts = line.split("\t")
+            if len(parts) < len(headers):
+                parts.extend([""] * (len(headers) - len(parts)))
+            elif len(parts) > len(headers):
+                # merge extras into last column to preserve data
+                parts = parts[: len(headers) - 1] + ["\t".join(parts[len(headers) - 1 :])]
+            rows.append(parts)
+    return pd.DataFrame(rows, columns=headers)
+
 def read_file(fp: Path) -> pd.DataFrame:
     display = display_name(fp)
     display_lower = display.lower()
@@ -102,32 +119,11 @@ def read_file(fp: Path) -> pd.DataFrame:
             print(f"⏳ Loading TSV: {display}", flush=True)
             return pd.read_csv(fp, sep="\t", dtype=str, encoding="utf-8", keep_default_na=False)
         except UnicodeDecodeError:
-            print(f"⚠️ WARNING: {display} is not UTF-8. Reading as latin1 (may corrupt data).")
-            try:
-                print(f"⏳ Loading TSV (latin1): {display}", flush=True)
-                return pd.read_csv(fp, sep="\t", dtype=str, encoding="latin1", keep_default_na=False)
-            except pd.errors.ParserError:
-                print(f"⚠️ WARNING: {display} has malformed lines. Retrying with python engine and skipping bad lines.")
-                return pd.read_csv(
-                    fp,
-                    sep="\t",
-                    dtype=str,
-                    encoding="latin1",
-                    keep_default_na=False,
-                    engine="python",
-                    on_bad_lines="skip"
-                )
+            print(f"⚠️ WARNING: {display} is not UTF-8. Retrying with latin1 tolerant parser (no row drops).")
+            return read_tsv_tolerant(fp, encoding="latin1")
         except pd.errors.ParserError:
-            print(f"⚠️ WARNING: {display} has malformed lines. Retrying with python engine and skipping bad lines.")
-            return pd.read_csv(
-                fp,
-                sep="\t",
-                dtype=str,
-                encoding="utf-8",
-                keep_default_na=False,
-                engine="python",
-                on_bad_lines="skip"
-            )
+            print(f"⚠️ WARNING: {display} has malformed lines. Retrying with tolerant TSV parser (no row drops).")
+            return read_tsv_tolerant(fp, encoding="utf-8")
     if suffix == ".csv" or display_lower.endswith(".csv"):
         print(f"⏳ Loading CSV: {display}", flush=True)
         return pd.read_csv(fp, dtype=str, keep_default_na=False)
@@ -286,7 +282,46 @@ def scope_key_from_value(val: str) -> str:
     s = str(val or "").strip()
     if not s:
         return ""
-    return s.split("_")[0].strip().lower()
+    s = s.split("_")[0].strip()
+    s = s.split(" ")[0].strip()
+    alias = {"bnc": "benefit"}
+    if s.lower() in alias:
+        s = alias[s.lower()]
+    return s.lower()
+
+# Read input header without full load
+def get_file_columns(fp: Path, display_override: str | None = None) -> list[str]:
+    display = display_override or display_name(fp)
+    display_lower = display.lower()
+    try:
+        if display_lower.endswith((".xlsx", ".xls")):
+            excel_path = excel_compatible_path(fp)
+            if excel_path is not None:
+                wb = load_workbook(excel_path, read_only=True, data_only=True)
+                ws = wb.active
+                header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+                wb.close()
+                return [str(v).strip() if v is not None else "" for v in header_row]
+        if display_lower.endswith(".tsv"):
+            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                header = f.readline().rstrip("\n")
+            return [c.strip() for c in header.split("\t")]
+        if display_lower.endswith(".csv"):
+            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                header = f.readline().rstrip("\n")
+            return [c.strip() for c in header.split(",")]
+    except Exception:
+        pass
+    return []
+
+# Safe column access (handles duplicate column names)
+def col_series(frame: pd.DataFrame, name: str, default: str = "") -> pd.Series:
+    if name not in frame.columns:
+        return pd.Series([default] * len(frame))
+    col = frame[name]
+    if isinstance(col, pd.DataFrame):
+        col = col.iloc[:, 0]
+    return col
 
 # Benefit-specific column aliases (apply to all checks)
 benefit_scope = any(scope_key_from_value(s) == "benefit" for s in df.get("scope", pd.Series([""])).astype(str).str.strip())
@@ -297,6 +332,10 @@ if benefit_scope:
         df["rating"] = df["average_rating"]
     if "country" not in df.columns and "region_site" in df.columns:
         df["country"] = df["region_site"]
+    if "regularprice" not in df.columns and "regular_price" in df.columns:
+        df["regularprice"] = df["regular_price"]
+    if "finalprice" not in df.columns and "final_price" in df.columns:
+        df["finalprice"] = df["final_price"]
 
 # ================= REQUIRED BASE COLUMNS =================
 required_cols = ["scope", "rname", "country"]
@@ -316,6 +355,13 @@ for s in scopes_in_output:
     scope_key_main = scope_key_from_value(s)
     if scope_key_main:
         break
+if not scope_key_main and "scope" in master_df.columns:
+    ms = master_df["scope"]
+    if isinstance(ms, pd.DataFrame):
+        ms = ms.iloc[:, 0]
+    ms = ms.dropna().astype(str).str.strip()
+    if len(ms):
+        scope_key_main = scope_key_from_value(ms.iloc[0])
 
 # ================= LOAD INPUT (FAST PATH FOR EXCEL) =================
 ip_df = None
@@ -410,9 +456,9 @@ for _, r in master_df.iterrows():
         valid_scope_country.add((scope, country))
 
 # ================= UNIQUE KEY =================
-base_id = df.get("base_id", pd.Series([""] * len(df))).astype(str).str.strip()
-rname_key = df["rname"].astype(str).str.strip()
-country_key = df["country"].astype(str).str.strip()
+base_id = col_series(df, "base_id").astype(str).str.strip()
+rname_key = col_series(df, "rname").astype(str).str.strip()
+country_key = col_series(df, "country").astype(str).str.strip()
 
 df["unique_key"] = rname_key + base_id
 
@@ -421,9 +467,9 @@ mask_hermes = rname_key.str.upper().str.contains("HERMES_EUROPE", na=False)
 df.loc[mask_hermes, "unique_key"] = rname_key[mask_hermes] + base_id[mask_hermes] + country_key[mask_hermes]
 
 # ================= RNAME / COUNTRY CHECK =================
-scope_s = df["scope"].astype(str).str.strip()
-rname_s = df["rname"].astype(str).str.strip()
-country_s = df["country"].astype(str).str.strip()
+scope_s = col_series(df, "scope").astype(str).str.strip()
+rname_s = col_series(df, "rname").astype(str).str.strip()
+country_s = col_series(df, "country").astype(str).str.strip()
 
 rname_pairs = pd.Series(list(zip(scope_s, rname_s)))
 country_pairs = pd.Series(list(zip(scope_s, country_s)))
@@ -480,10 +526,10 @@ if "date" in df.columns:
     df["date_check"] = df["date"].apply(lambda x: "PASS" if str(x).startswith(today) else "FAIL")
 
 # ================= PRICE / STATUS CHECK =================
-reg = df.get("regularprice", pd.Series([""] * len(df))).astype(str).str.strip()
-final = df.get("finalprice", pd.Series([""] * len(df))).astype(str).str.strip()
-markdown = df.get("markdown_price", pd.Series([""] * len(df))).astype(str).str.strip()
-item_status = df.get("item_status", pd.Series([""] * len(df))).astype(str).str.strip()
+reg = col_series(df, "regularprice").astype(str).str.strip()
+final = col_series(df, "finalprice").astype(str).str.strip()
+markdown = col_series(df, "markdown_price").astype(str).str.strip()
+item_status = col_series(df, "item_status").astype(str).str.strip()
 
 reg_na = reg.apply(is_na_text) | reg.apply(is_not_available)
 final_na = final.apply(is_na_text) | final.apply(is_not_available)
@@ -507,8 +553,8 @@ df.loc[mask_neq & (item_status != "M"), "price_rule_check"] = "FAIL"
 df.loc[mask_neq & (markdown.apply(is_na_text)), "price_rule_check"] = "FAIL"
 
 # ================= STOCK / AVAILABILITY CHECK =================
-stock_status = df.get("stock_status", pd.Series([""] * len(df))).astype(str).str.strip()
-availability = df.get("availability", pd.Series([""] * len(df))).astype(str).str.strip()
+stock_status = col_series(df, "stock_status").astype(str).str.strip()
+availability = col_series(df, "availability").astype(str).str.strip()
 
 df["availability_check"] = "PASS"
 
@@ -520,6 +566,8 @@ df.loc[mask_out & (availability != "No"), "availability_check"] = "FAIL"
 
 # If In Stock / Out of Stock, no "Not available" in key columns
 def is_not_available_series(s: pd.Series) -> pd.Series:
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
     return s.astype(str).str.strip().str.lower() == "not available"
 
 def is_na_or_not_available_series(s: pd.Series) -> pd.Series:
@@ -549,10 +597,11 @@ ALLOWED_NA_REQUIRED_BY_SCOPE = {
     "pcd": {"url"},
 }
 
-scope_name = df.get("scope", pd.Series([""])).astype(str).str.strip().iloc[0] if len(df) else ""
+scope_name = col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else ""
 scope_key = scope_key_from_value(scope_name)
 required_na_cols = NOT_AVAILABLE_REQUIRED_BY_SCOPE.get(scope_key)
 df["not_available_values_check"] = "PASS"
+df["not_available_values_detail"] = ""
 
 if required_na_cols:
     na_mask = stock_status.str.strip().str.lower() == "not available"
@@ -571,25 +620,33 @@ if required_na_cols:
                 missing_required.append(req_l)
 
         fail_mask = pd.Series(False, index=df.index)
+        detail = pd.Series([""] * len(df), index=df.index, dtype=object)
         if missing_required:
             fail_mask |= na_mask
 
-        # Required columns should NOT be not available (except allowed)
+        # Required columns should NOT be "Not available" (NA is allowed)
         for col in required_actual:
             if col.lower() in allowed_na:
                 continue
-            fail_mask |= na_mask & is_na_or_not_available_series(df[col])
+            mask_bad = na_mask & is_not_available_series(df[col])
+            fail_mask |= mask_bad
+            if mask_bad.any():
+                detail.loc[mask_bad] += f"required {col} is Not available | "
 
         # Non-required columns should be not available
         other_cols = [c for c in base_columns if c.lower() not in set(required_na_lower)]
         for col in other_cols:
-            fail_mask |= na_mask & ~is_na_or_not_available_series(df[col])
+            mask_bad = na_mask & ~is_na_or_not_available_series(df[col])
+            fail_mask |= mask_bad
+            if mask_bad.any():
+                detail.loc[mask_bad] += f"non-required {col} has value | "
 
         df.loc[fail_mask, "not_available_values_check"] = "FAIL"
+        df.loc[fail_mask, "not_available_values_detail"] = detail.str.rstrip(" | ")
 
 # ================= RATING CHECK =================
-rating = df.get("rating", pd.Series([""] * len(df))).astype(str).str.strip()
-review = df.get("review", pd.Series([""] * len(df))).astype(str).str.strip()
+rating = col_series(df, "rating").astype(str).str.strip()
+review = col_series(df, "review").astype(str).str.strip()
 
 df["rating_check"] = "PASS"
 
@@ -619,18 +676,18 @@ df.loc[~mask_stock_na & (~rating_numeric_ok | ~rating_in_range) & ~mask_rating_r
 df.loc[(review_val > 0) & rating_is_na & ~mask_rating_review_na, "rating_check"] = "FAIL"
 
 # For MFK and Hermes: In Stock / Out of Stock must not have Not available in rating or review
-df["rating_review_stock_check"] = "PASS"
-scope_key_rr = scope_key_from_value(df.get("scope", pd.Series([""])).astype(str).str.strip().iloc[0] if len(df) else "")
+scope_key_rr = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
 if scope_key_rr in {"mfk", "hermes"}:
+    df["rating_review_stock_check"] = "PASS"
     mask_stock_in_out = stock_status.isin(["In Stock", "Out of Stock"])
     mask_rating_na = rating.apply(is_not_available)
     mask_review_na = review.apply(is_not_available)
-df.loc[mask_stock_in_out & (mask_rating_na | mask_review_na), "rating_review_stock_check"] = "FAIL"
+    df.loc[mask_stock_in_out & (mask_rating_na | mask_review_na), "rating_review_stock_check"] = "FAIL"
 
 # For MFK and Hermes: Not available SKUs must have PName and SKUVARIENT from input (not Not available)
-df["na_sku_input_check"] = "PASS"
-scope_key_rr = scope_key_from_value(df.get("scope", pd.Series([""])).astype(str).str.strip().iloc[0] if len(df) else "")
+scope_key_rr = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
 if scope_key_rr in {"mfk", "hermes"} and ip_input_map:
+    df["na_sku_input_check"] = "PASS"
     mask_na_sku = stock_status.str.strip().str.lower() == "not available"
     if mask_na_sku.any():
         pname_col = None
@@ -643,11 +700,11 @@ if scope_key_rr in {"mfk", "hermes"} and ip_input_map:
         if pname_col is None or skuvar_col is None:
             df.loc[mask_na_sku, "na_sku_input_check"] = "FAIL"
         else:
-            out_rname = df["rname"].astype(str).str.strip()
-            out_base = df.get("base_id", pd.Series([""] * len(df))).astype(str).str.strip()
-            out_country = df.get("country", pd.Series([""] * len(df))).astype(str).str.strip()
-            out_pname = df[pname_col].astype(str).str.strip()
-            out_skuvar = df[skuvar_col].astype(str).str.strip()
+            out_rname = col_series(df, "rname").astype(str).str.strip()
+            out_base = col_series(df, "base_id").astype(str).str.strip()
+            out_country = col_series(df, "country").astype(str).str.strip()
+            out_pname = col_series(df, pname_col).astype(str).str.strip()
+            out_skuvar = col_series(df, skuvar_col).astype(str).str.strip()
             for i in df[mask_na_sku].index:
                 key = f"{out_rname[i]}{out_base[i]}{out_country[i]}"
                 ref = ip_input_map.get(key)
@@ -663,24 +720,42 @@ if scope_key_rr in {"mfk", "hermes"} and ip_input_map:
                 if ref.get("skuvarient", "") and out_skuvar[i] != ref.get("skuvarient", ""):
                     df.at[i, "na_sku_input_check"] = "FAIL"
 
-# Check rating normalization for MFK and Hermes only (no mutation)
-scope_key_rating = scope_key_from_value(df.get("scope", pd.Series([""])).astype(str).str.strip().iloc[0] if len(df) else "")
-df["rating_normalization_check"] = "PASS"
+# For MFK and Hermes: Not available SKU must have url = "Not Available" (not n/a)
+if scope_key_rr in {"mfk", "hermes"}:
+    df["na_url_check"] = "PASS"
+    mask_na_sku = stock_status.str.strip().str.lower() == "not available"
+    if mask_na_sku.any():
+        url_col = None
+        for c in df.columns:
+            if c.lower() == "url":
+                url_col = c
+                break
+        if url_col is None:
+            df.loc[mask_na_sku, "na_url_check"] = "FAIL"
+        else:
+            url_vals = col_series(df, url_col).astype(str).str.strip()
+            bad = mask_na_sku & ~url_vals.str.lower().eq("not available")
+            df.loc[bad, "na_url_check"] = "FAIL"
+
+# Rating normalization for MFK and Hermes (check only, no mutation)
+scope_key_rating = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
 if scope_key_rating in {"mfk", "hermes"}:
+    df["rating_normalization_check"] = "PASS"
     mask_rating_valid = rating_numeric_ok & rating_in_range
     mask_rating_zero = mask_rating_valid & (rating_val == 0)
     mask_rating_int = mask_rating_valid & (rating_val % 1 == 0) & ~mask_rating_zero
-    # Integer > 0 must be written as X.0 (e.g., 2.0). Zero must be "0"
-    normalized_int_ok = rating_norm.str.match(r"^[0-9]+\\.0+$", na=False)
+    # Fail if rating is integer > 0 but not written as X.0, or if rating is invalid
+    normalized_int_ok = rating_norm.str.match(r"^[0-9]+\.0+$", na=False)
     normalized_zero_ok = rating_norm.eq("0")
     fail_norm = (mask_rating_int & ~normalized_int_ok) | (mask_rating_zero & ~normalized_zero_ok)
+    fail_norm |= (~mask_rating_valid & ~rating_is_na & ~mask_rating_review_na)
     df.loc[fail_norm, "rating_normalization_check"] = "FAIL"
 
 # ================= KEYWORDS BLANK CHECK (scope-specific) =================
 KEYWORDS_BLANK_SCOPES = {"mfk", "hermes"}
-df["keywords_blank_check"] = "PASS"
-scope_key = scope_key_from_value(df.get("scope", pd.Series([""])).astype(str).str.strip().iloc[0] if len(df) else "")
+scope_key = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
 if scope_key in KEYWORDS_BLANK_SCOPES:
+    df["keywords_blank_check"] = "PASS"
     # find keywords column case-insensitively
     keywords_col = None
     for c in df.columns:
@@ -690,8 +765,9 @@ if scope_key in KEYWORDS_BLANK_SCOPES:
     if keywords_col is None:
         df["keywords_blank_check"] = "FAIL"
     else:
-        kw_vals = df[keywords_col].astype(str).str.strip()
-        non_blank = ~kw_vals.apply(is_na_text)
+        kw_vals = col_series(df, keywords_col).astype(str).str.strip()
+        # must be truly blank; n/a or not available should FAIL
+        non_blank = kw_vals != ""
         df.loc[non_blank, "keywords_blank_check"] = "FAIL"
 
 # ================= FAILURE REASON =================
@@ -761,14 +837,14 @@ for s in scope_values:
         break
 
 if required_columns:
-    required_lower = [c.lower() for c in required_columns]
-    current_cols = list(df.columns)
-    current_lower = [c.lower() for c in current_cols]
-    missing_required = [req for req, req_l in zip(required_columns, required_lower) if req_l not in current_lower]
-    extra_current = [cur for cur, cur_l in zip(current_cols, current_lower) if cur_l not in set(required_lower)]
-    # sequence check: compare the sequence of required columns as they appear in current columns
-    current_required_sequence = [c for c in current_lower if c in set(required_lower)]
-    sequence_ok = current_required_sequence == required_lower
+    op_cols = get_file_columns(OP_FILE, display_override=display_name(OP_FILE))
+    current_cols = op_cols if op_cols else list(df.columns)
+    # case-sensitive checks against original headers
+    missing_required = [req for req in required_columns if req not in current_cols]
+    extra_current = [cur for cur in current_cols if cur not in set(required_columns)]
+    # sequence check: compare the sequence of required columns as they appear in current columns (case-sensitive)
+    current_required_sequence = [c for c in current_cols if c in set(required_columns)]
+    sequence_ok = current_required_sequence == required_columns
     df["required_column_check"] = "PASS" if (len(missing_required) == 0 and sequence_ok) else "FAIL"
     df["missing_columns_check"] = "PASS" if len(missing_required) == 0 else "FAIL"
     df["extra_columns_check"] = "PASS" if len(extra_current) == 0 else "FAIL"
@@ -778,22 +854,23 @@ else:
     df["extra_columns_check"] = "PASS"
 
 FAILURE_MESSAGE_MAP = {
-    "rname_check": "rname should match as per master",
-    "country_check": "country should match as per master",
-    "row_count_check": "row count does not match crawl input for retailer",
-    "date_check": "date should be current date",
-    "price_rule_check": "price/status rule failed",
-    "availability_check": "availability should match stock status (In Stock/Out of Stock)",
-    "stock_na_check": "Not available found in columns while stock status is In Stock/Out of Stock",
-    "rating_check": "rating format or value is invalid",
-    "keywords_blank_check": "keywords column should be blank for this scope",
-    "required_column_check": "all required columns not present",
-    "missing_columns_check": "missing required columns present",
-    "extra_columns_check": "extra columns present",
-    "not_available_values_check": "Not available rule failed",
-    "rating_normalization_check": "rating normalization failed (use X.0, 0 stays 0)",
-    "rating_review_stock_check": "rating/review should not be Not available for In Stock/Out of Stock",
-    "na_sku_input_check": "Not available SKU must match input PName/SKUVARIENT",
+    "rname_check": "Retailer name (rname) is not valid for this scope (check master mapping).",
+    "country_check": "Country is not valid for this scope (check master mapping).",
+    "row_count_check": "Input row count does not match output row count for this scope + rname.",
+    "date_check": "Date is not today (expected current date).",
+    "price_rule_check": "Price/Status rule failed: regular vs final price must match item_status and markdown_price.",
+    "availability_check": "Availability must match stock_status: In Stock -> Yes, Out of Stock -> No.",
+    "stock_na_check": "For In Stock/Out of Stock, these columns cannot be 'Not available': regularprice/finalprice/markdown_price/item_status/rating/review/availability.",
+    "rating_check": "Rating is invalid: must be numeric 0–5 (or allowed NA for Not available stock).",
+    "keywords_blank_check": "Keywords must be blank for this scope (MFK/Hermes).",
+    "required_column_check": "Required columns missing or wrong order (scope-specific template mismatch).",
+    "missing_columns_check": "One or more required columns are missing for this scope.",
+    "extra_columns_check": "One or more extra columns exist that are not in the required template.",
+    "not_available_values_check": "Not available rule failed: when stock_status = 'Not available', only required columns may have values; all other columns must be NA/Not available.",
+    "rating_normalization_check": "Rating format rule failed (MFK/Hermes): integers must be X.0 and zero must be '0'.",
+    "rating_review_stock_check": "For In Stock/Out of Stock (MFK/Hermes), rating and review cannot be 'Not available'.",
+    "na_sku_input_check": "Not available SKU must match input PName and SKUVARIENT (MFK/Hermes, key=rname+base_id+country).",
+    "na_url_check": "For Not Available SKU (MFK/Hermes), url must be 'Not Available' (not n/a).",
 }
 
 check_cols = [c for c in FAILURE_MESSAGE_MAP.keys() if c in df.columns]
@@ -811,7 +888,8 @@ df.to_csv(OUTPUT_FILE.with_suffix(".csv"), index=False)
 with pd.ExcelWriter(OUTPUT_FILE, engine="xlsxwriter", engine_kwargs={"options": {"strings_to_urls": False}}) as writer:
     df.to_excel(writer, sheet_name="PDP_Data", index=False)
     if required_columns:
-        current_cols = list(df.columns)
+        op_cols = get_file_columns(OP_FILE, display_override=display_name(OP_FILE))
+        current_cols = op_cols if op_cols else list(df.columns)
         req_df = pd.DataFrame([{
             "scope": next(iter(scope_values)) if scope_values else "",
             "required_columns": ", ".join(required_columns),
