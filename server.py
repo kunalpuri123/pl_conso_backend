@@ -527,11 +527,18 @@ def execute_pdp_run(run_id: str):
             try:
                 import csv
                 from openpyxl import load_workbook
+                import shutil as _shutil
 
                 ip_csv_local = os.path.join(run_dir, "pdp_input.csv")
                 log(run_id, "INFO", "Converting input Excel to CSV (local, streaming)")
 
-                wb = load_workbook(ip_local, read_only=True, data_only=True)
+                # If local path doesn't have an excel extension, copy to a temp .xlsx
+                excel_path = ip_local
+                if not ip_local.lower().endswith((".xlsx", ".xlsm", ".xltx", ".xltm", ".xls")):
+                    excel_path = os.path.join(run_dir, "pdp_input.xlsx")
+                    _shutil.copyfile(ip_local, excel_path)
+
+                wb = load_workbook(excel_path, read_only=True, data_only=True)
                 ws = wb.active
 
                 header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
