@@ -46,6 +46,18 @@ def read_file(fp: Path) -> pd.DataFrame:
 
     # If original filename indicates Excel, prefer read_excel regardless of local suffix
     if display_lower.endswith((".xlsx", ".xls")):
+        # If this is the input file, load only needed columns to speed up
+        if fp == IP_FILE:
+            print(f"⏳ Loading Excel (header only): {display}", flush=True)
+            header_df = pd.read_excel(fp, nrows=0)
+            header_cols = [c.strip().lower() for c in header_df.columns]
+            scope_col = "scope" if "scope" in header_cols else ("scope_name" if "scope_name" in header_cols else None)
+            rname_col = "rname" if "rname" in header_cols else ("domain_input" if "domain_input" in header_cols else None)
+
+            if scope_col and rname_col:
+                print(f"⏳ Loading Excel (usecols={scope_col},{rname_col}): {display}", flush=True)
+                return pd.read_excel(fp, dtype=str, keep_default_na=False, usecols=[scope_col, rname_col])
+
         print(f"⏳ Loading Excel: {display}", flush=True)
         return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
