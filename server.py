@@ -639,7 +639,7 @@ def execute_pdp_run(run_id: str):
         # 4b. upload cache if computed
         # -----------------------------
         try:
-            if cache_key:
+            if cache_key and cache_hit_path is None:
                 cache_local = os.path.join(run_dir, "pdp_ip_counts_cache.json")
                 if os.path.exists(cache_local) and os.path.getsize(cache_local) > 0:
                     upload_to_storage(cache_bucket, cache_key, cache_local)
