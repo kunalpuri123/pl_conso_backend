@@ -6,6 +6,7 @@ import sys
 from datetime import datetime
 import os
 import time
+from openpyxl import load_workbook
 
 print("=== PDP CHECKLIST STARTED ===", flush=True)
 
@@ -37,6 +38,9 @@ for fp, label in [(OP_FILE, "Output"), (IP_FILE, "Input"), (MASTER_FILE, "Master
     if not fp.exists():
         print(f"❌ {label} file not found: {fp}")
         sys.exit(1)
+
+def is_excel_display(fp: Path) -> bool:
+    return display_name(fp).lower().endswith((".xlsx", ".xls"))
 
 # ================= FILE HELPERS =================
 def read_file(fp: Path) -> pd.DataFrame:
@@ -98,6 +102,42 @@ def read_file(fp: Path) -> pd.DataFrame:
     print(f"⏳ Loading file: {display}", flush=True)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
+def compute_ip_counts_excel(fp: Path, scopes_in_output: set):
+    display = display_name(fp)
+    print(f"⏳ Streaming Excel for counts: {display}", flush=True)
+    wb = load_workbook(fp, read_only=True, data_only=True)
+    ws = wb.active
+
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+    header = [str(v).strip().lower() if v is not None else "" for v in header_row]
+
+    scope_idx = header.index("scope") if "scope" in header else (header.index("scope_name") if "scope_name" in header else None)
+    rname_idx = header.index("rname") if "rname" in header else (header.index("domain_input") if "domain_input" in header else None)
+
+    if scope_idx is None or rname_idx is None:
+        wb.close()
+        return None, None, None, None
+
+    counts = {}
+    total_rows = 0
+    kept_rows = 0
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        total_rows += 1
+        scope_val = row[scope_idx]
+        if scope_val is None:
+            continue
+        scope_s = str(scope_val).strip()
+        if scopes_in_output and scope_s not in scopes_in_output:
+            continue
+        rname_val = row[rname_idx]
+        rname_s = "" if rname_val is None else str(rname_val).strip()
+        counts[(scope_s, rname_s)] = counts.get((scope_s, rname_s), 0) + 1
+        kept_rows += 1
+
+    wb.close()
+    return counts, total_rows, kept_rows, (header[scope_idx], header[rname_idx])
+
 def is_na_text(val: str) -> bool:
     if val is None:
         return True
@@ -118,22 +158,12 @@ df = read_file(OP_FILE)
 print(f"✅ Loaded OP in {time.perf_counter() - t0:.2f}s | rows={len(df)}", flush=True)
 
 t0 = time.perf_counter()
-ip_df = read_file(IP_FILE)
-print(f"✅ Loaded IP in {time.perf_counter() - t0:.2f}s | rows={len(ip_df)}", flush=True)
-
-t0 = time.perf_counter()
 master_df = read_file(MASTER_FILE)
 print(f"✅ Loaded MASTER in {time.perf_counter() - t0:.2f}s | rows={len(master_df)}", flush=True)
 
 # Normalize column names
 df.columns = [c.strip().lower() for c in df.columns]
-ip_df.columns = [c.strip().lower() for c in ip_df.columns]
 master_df.columns = [c.strip().lower() for c in master_df.columns]
-
-# Normalize common alternate column names
-if "scope" not in ip_df.columns and "scope_name" in ip_df.columns:
-    print("ℹ️ Renaming scope_name -> scope in INPUT file")
-    ip_df = ip_df.rename(columns={"scope_name": "scope"})
 
 # ================= REQUIRED BASE COLUMNS =================
 required_cols = ["scope", "rname", "country"]
@@ -145,12 +175,37 @@ for col in required_cols:
 scopes_in_output = set(df["scope"].dropna().astype(str).str.strip())
 print("🔎 Scopes found in output:", scopes_in_output)
 
-# Filter input by scopes found in output
-if "scope" in ip_df.columns:
-    ip_df = ip_df[ip_df["scope"].isin(scopes_in_output)]
-print(f"✅ IP rows after scope filter: {len(ip_df)}", flush=True)
+# ================= LOAD INPUT (FAST PATH FOR EXCEL) =================
+ip_df = None
+ip_counts_precomputed = None
 
-print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df)} | Master Rows: {len(master_df)}")
+if is_excel_display(IP_FILE):
+    t0 = time.perf_counter()
+    ip_counts_precomputed, total_rows, kept_rows, ip_cols = compute_ip_counts_excel(IP_FILE, scopes_in_output)
+    if ip_counts_precomputed is None:
+        print("⚠️ Excel streaming failed to find scope/rname columns. Falling back to full load.", flush=True)
+    else:
+        print(f"✅ Streamed IP in {time.perf_counter() - t0:.2f}s | rows={total_rows} | kept={kept_rows} | cols={ip_cols}", flush=True)
+
+if ip_counts_precomputed is None:
+    t0 = time.perf_counter()
+    ip_df = read_file(IP_FILE)
+    print(f"✅ Loaded IP in {time.perf_counter() - t0:.2f}s | rows={len(ip_df)}", flush=True)
+
+    # Normalize column names
+    ip_df.columns = [c.strip().lower() for c in ip_df.columns]
+
+    # Normalize common alternate column names
+    if "scope" not in ip_df.columns and "scope_name" in ip_df.columns:
+        print("ℹ️ Renaming scope_name -> scope in INPUT file")
+        ip_df = ip_df.rename(columns={"scope_name": "scope"})
+
+    # Filter input by scopes found in output
+    if "scope" in ip_df.columns:
+        ip_df = ip_df[ip_df["scope"].isin(scopes_in_output)]
+    print(f"✅ IP rows after scope filter: {len(ip_df)}", flush=True)
+
+print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df) if ip_df is not None else 'streamed'} | Master Rows: {len(master_df)}")
 
 # ================= MASTER MAP (scope → rname/country) =================
 valid_scope_rname = set()
@@ -191,21 +246,24 @@ df["country_check"] = np.where(country_pairs.isin(valid_scope_country), "PASS", 
 row_key = list(zip(scope_s, rname_s))
 op_counts = pd.Series(row_key).value_counts().to_dict()
 
-ip_scope_col = "scope" if "scope" in ip_df.columns else None
-ip_rname_col = None
-if "rname" in ip_df.columns:
-    ip_rname_col = "rname"
-elif "domain_input" in ip_df.columns:
-    ip_rname_col = "domain_input"
-
-if ip_scope_col and ip_rname_col:
-    ip_key = list(zip(
-        ip_df[ip_scope_col].astype(str).str.strip(),
-        ip_df[ip_rname_col].astype(str).str.strip()
-    ))
-    ip_counts = pd.Series(ip_key).value_counts().to_dict()
+if ip_counts_precomputed is not None:
+    ip_counts = ip_counts_precomputed
 else:
-    ip_counts = {}
+    ip_scope_col = "scope" if (ip_df is not None and "scope" in ip_df.columns) else None
+    ip_rname_col = None
+    if ip_df is not None and "rname" in ip_df.columns:
+        ip_rname_col = "rname"
+    elif ip_df is not None and "domain_input" in ip_df.columns:
+        ip_rname_col = "domain_input"
+
+    if ip_scope_col and ip_rname_col:
+        ip_key = list(zip(
+            ip_df[ip_scope_col].astype(str).str.strip(),
+            ip_df[ip_rname_col].astype(str).str.strip()
+        ))
+        ip_counts = pd.Series(ip_key).value_counts().to_dict()
+    else:
+        ip_counts = {}
 
 expected_counts = [ip_counts.get(k, 0) for k in row_key]
 actual_counts = [op_counts.get(k, 0) for k in row_key]
