@@ -92,6 +92,17 @@ for _, r in master_df.iterrows():
     if scope and country:
         valid_scope_country.add((scope, country))
 
+# ================= UNIQUE KEY =================
+base_id = df.get("base_id", pd.Series([""] * len(df))).astype(str).str.strip()
+rname_key = df["rname"].astype(str).str.strip()
+country_key = df["country"].astype(str).str.strip()
+
+df["unique_key"] = rname_key + base_id
+
+# Hermes special case: rname + base_id + country
+mask_hermes = rname_key.str.upper().str.contains("HERMES_EUROPE", na=False)
+df.loc[mask_hermes, "unique_key"] = rname_key[mask_hermes] + base_id[mask_hermes] + country_key[mask_hermes]
+
 # ================= RNAME / COUNTRY CHECK =================
 scope_s = df["scope"].astype(str).str.strip()
 rname_s = df["rname"].astype(str).str.strip()
@@ -116,9 +127,9 @@ else:
 expected_counts = [ip_counts.get(k, 0) for k in row_key]
 actual_counts = [op_counts.get(k, 0) for k in row_key]
 
-df["row_count_expected"] = expected_counts
-df["row_count_actual"] = actual_counts
-df["row_count_check"] = np.where(df["row_count_expected"] == df["row_count_actual"], "PASS", "FAIL")
+df["row_count_input"] = expected_counts
+df["row_count_output"] = actual_counts
+df["row_count_check"] = np.where(df["row_count_input"] == df["row_count_output"], "PASS", "FAIL")
 
 # ================= DATE CHECK =================
 today = datetime.today().strftime("%Y-%m-%d")
