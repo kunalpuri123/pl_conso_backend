@@ -34,7 +34,30 @@ def read_file(fp: Path) -> pd.DataFrame:
             return pd.read_csv(fp, sep="\t", dtype=str, encoding="utf-8", keep_default_na=False)
         except UnicodeDecodeError:
             print(f"⚠️ WARNING: {fp.name} is not UTF-8. Reading as latin1 (may corrupt data).")
-            return pd.read_csv(fp, sep="\t", dtype=str, encoding="latin1", keep_default_na=False)
+            try:
+                return pd.read_csv(fp, sep="\t", dtype=str, encoding="latin1", keep_default_na=False)
+            except pd.errors.ParserError:
+                print(f"⚠️ WARNING: {fp.name} has malformed lines. Retrying with python engine and skipping bad lines.")
+                return pd.read_csv(
+                    fp,
+                    sep="\t",
+                    dtype=str,
+                    encoding="latin1",
+                    keep_default_na=False,
+                    engine="python",
+                    on_bad_lines="skip"
+                )
+        except pd.errors.ParserError:
+            print(f"⚠️ WARNING: {fp.name} has malformed lines. Retrying with python engine and skipping bad lines.")
+            return pd.read_csv(
+                fp,
+                sep="\t",
+                dtype=str,
+                encoding="utf-8",
+                keep_default_na=False,
+                engine="python",
+                on_bad_lines="skip"
+            )
     if fp.suffix == ".csv":
         return pd.read_csv(fp, dtype=str, keep_default_na=False)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
