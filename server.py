@@ -473,6 +473,10 @@ def execute_pdp_run(run_id: str):
         # -----------------------------
         # 3. download files
         # -----------------------------
+        log(run_id, "INFO", f"OP file: {run['op_filename']}")
+        log(run_id, "INFO", f"IP file: {run['ip_filename']}")
+        log(run_id, "INFO", f"MASTER file: {run['master_filename']}")
+
         download_from_storage(
             "pdp-input",
             run["op_filename"],

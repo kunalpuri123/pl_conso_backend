@@ -141,8 +141,18 @@ df["country_check"] = np.where(country_pairs.isin(valid_scope_country), "PASS", 
 row_key = list(zip(scope_s, rname_s))
 op_counts = pd.Series(row_key).value_counts().to_dict()
 
-if "scope" in ip_df.columns and "rname" in ip_df.columns:
-    ip_key = list(zip(ip_df["scope"].astype(str).str.strip(), ip_df["rname"].astype(str).str.strip()))
+ip_scope_col = "scope" if "scope" in ip_df.columns else None
+ip_rname_col = None
+if "rname" in ip_df.columns:
+    ip_rname_col = "rname"
+elif "domain_input" in ip_df.columns:
+    ip_rname_col = "domain_input"
+
+if ip_scope_col and ip_rname_col:
+    ip_key = list(zip(
+        ip_df[ip_scope_col].astype(str).str.strip(),
+        ip_df[ip_rname_col].astype(str).str.strip()
+    ))
     ip_counts = pd.Series(ip_key).value_counts().to_dict()
 else:
     ip_counts = {}
