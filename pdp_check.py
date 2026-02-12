@@ -698,6 +698,10 @@ for req in REQUIRED_NON_NA_COLS:
     vals = col_series(df, col_match).astype(str).str.strip()
     # only treat explicit n/a values as invalid (do NOT treat blanks as n/a)
     bad = vals.str.lower().isin({"n/a","na","null","nan"})
+    # special case for item_status: allow n/a only if all prices are n/a
+    if col_match.lower() == "item_status":
+        prices_all_na = reg.apply(is_na_text) & final.apply(is_na_text) & markdown.apply(is_na_text)
+        bad = bad & ~prices_all_na
     if bad.any():
         df.loc[bad, "required_non_na_check"] = "FAIL"
         df.loc[bad, "required_non_na_detail"] = df.loc[bad, "required_non_na_detail"] + f"{col_match} cant have n/a values | "
