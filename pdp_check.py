@@ -105,7 +105,12 @@ def read_file(fp: Path) -> pd.DataFrame:
                 header_df = pd.read_excel(excel_path, nrows=0)
                 header_cols = [c.strip().lower() for c in header_df.columns]
                 scope_col = "scope" if "scope" in header_cols else ("scope_name" if "scope_name" in header_cols else None)
-                rname_col = "rname" if "rname" in header_cols else ("domain_input" if "domain_input" in header_cols else None)
+                if "rname" in header_cols:
+                    rname_col = "rname"
+                elif "site_name" in header_cols:
+                    rname_col = "site_name"
+                else:
+                    rname_col = "domain_input" if "domain_input" in header_cols else None
 
                 if scope_col and rname_col:
                     print(f"⏳ Loading Excel (usecols={scope_col},{rname_col}): {display}", flush=True)
@@ -140,7 +145,12 @@ def compute_ip_counts_excel(fp: Path, scopes_in_output: set | None, collect_inpu
     header = [str(v).strip().lower() if v is not None else "" for v in header_row]
 
     scope_idx = header.index("scope") if "scope" in header else (header.index("scope_name") if "scope_name" in header else None)
-    rname_idx = header.index("rname") if "rname" in header else (header.index("domain_input") if "domain_input" in header else None)
+    if "rname" in header:
+        rname_idx = header.index("rname")
+    elif "site_name" in header:
+        rname_idx = header.index("site_name")
+    else:
+        rname_idx = header.index("domain_input") if "domain_input" in header else None
 
     if scope_idx is None or rname_idx is None:
         wb.close()
@@ -168,6 +178,7 @@ def compute_ip_counts_excel(fp: Path, scopes_in_output: set | None, collect_inpu
             continue
         rname_val = row[rname_idx]
         rname_s = "" if rname_val is None else str(rname_val).strip()
+        rname_s = normalize_rname_for_scope(scope_key_main, rname_s)
         counts[(scope_s, rname_s)] = counts.get((scope_s, rname_s), 0) + 1
         # build input map if columns exist
         if collect_input_map and base_id_idx is not None and country_idx is not None and (pname_idx is not None or skuvar_idx is not None):
@@ -189,7 +200,12 @@ def compute_ip_counts_pandas_excel(fp: Path, scopes_in_output: set | None, colle
     header_df = pd.read_excel(fp, nrows=0)
     header_cols = [c.strip().lower() for c in header_df.columns]
     scope_col = "scope" if "scope" in header_cols else ("scope_name" if "scope_name" in header_cols else None)
-    rname_col = "rname" if "rname" in header_cols else ("domain_input" if "domain_input" in header_cols else None)
+    if "rname" in header_cols:
+        rname_col = "rname"
+    elif "site_name" in header_cols:
+        rname_col = "site_name"
+    else:
+        rname_col = "domain_input" if "domain_input" in header_cols else None
 
     if scope_col is None or rname_col is None:
         return None, None, None, None, None
@@ -213,7 +229,10 @@ def compute_ip_counts_pandas_excel(fp: Path, scopes_in_output: set | None, colle
     if scopes_in_output:
         df_ip = df_ip[df_ip["scope"].isin(scopes_in_output)]
     kept_rows = len(df_ip)
-    ip_key = list(zip(df_ip["scope"].astype(str).str.strip(), df_ip["rname"].astype(str).str.strip()))
+    ip_key = list(zip(
+        df_ip["scope"].astype(str).str.strip(),
+        df_ip["rname"].astype(str).str.strip().apply(lambda x: normalize_rname_for_scope(scope_key_main, x))
+    ))
     counts = pd.Series(ip_key).value_counts().to_dict()
 
     input_map = {}
@@ -288,6 +307,12 @@ def scope_key_from_value(val: str) -> str:
     if s.lower() in alias:
         s = alias[s.lower()]
     return s.lower()
+
+# Normalize retailer names for specific scopes (kept minimal)
+def normalize_rname_for_scope(scope_key: str, name: str) -> str:
+    if scope_key == "mfk" and str(name).strip().lower() == "nordstrom":
+        return "Nordstrom"
+    return str(name).strip()
 
 # Read input header without full load
 def get_file_columns(fp: Path, display_override: str | None = None) -> list[str]:
@@ -364,6 +389,7 @@ if not scope_key_main and "scope" in master_df.columns:
         scope_key_main = scope_key_from_value(ms.iloc[0])
 
 # ================= LOAD INPUT (FAST PATH FOR EXCEL) =================
+CACHE_VERSION = 2
 ip_df = None
 ip_counts_precomputed = None
 ip_input_map = {}
@@ -375,10 +401,15 @@ if cache_path and os.path.exists(cache_path):
     try:
         with open(cache_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
-        ip_counts_precomputed = decode_counts(payload.get("counts", {}))
-        ip_input_map = decode_input_map(payload.get("input_map", {}))
-        cache_loaded = True
-        print("✅ Loaded input counts cache", flush=True)
+        if payload.get("version") == CACHE_VERSION:
+            ip_counts_precomputed = decode_counts(payload.get("counts", {}))
+            ip_input_map = decode_input_map(payload.get("input_map", {}))
+            if scope_key_main == "mfk" and ip_counts_precomputed:
+                ip_counts_precomputed = {(k[0], normalize_rname_for_scope("mfk", k[1])): v for k, v in ip_counts_precomputed.items()}
+            cache_loaded = True
+            print("✅ Loaded input counts cache", flush=True)
+        else:
+            print("ℹ️ Cache version mismatch, rebuilding input counts", flush=True)
     except Exception as e:
         print(f"⚠️ Failed to load input counts cache. {str(e)}", flush=True)
 
@@ -433,6 +464,7 @@ print(f"✅ Files loaded | OP Rows: {len(df)} | IP Rows: {len(ip_df) if ip_df is
 if cache_write and ip_counts_precomputed is not None and not cache_loaded:
     try:
         payload = {
+            "version": CACHE_VERSION,
             "counts": encode_counts(ip_counts_precomputed),
             "input_map": encode_input_map(ip_input_map)
         }
@@ -478,7 +510,7 @@ df["rname_check"] = np.where(rname_pairs.isin(valid_scope_rname), "PASS", "FAIL"
 df["country_check"] = np.where(country_pairs.isin(valid_scope_country), "PASS", "FAIL")
 
 # ================= ROW COUNT CHECK (per scope + rname) =================
-row_key = list(zip(scope_s, rname_s))
+row_key = list(zip(scope_s, rname_s.apply(lambda x: normalize_rname_for_scope(scope_key_main, x))))
 op_counts = pd.Series(row_key).value_counts().to_dict()
 
 if ip_counts_precomputed is not None:
@@ -492,9 +524,11 @@ else:
         ip_rname_col = "domain_input"
 
     if ip_scope_col and ip_rname_col:
+        ip_scope_vals = ip_df[ip_scope_col].astype(str).str.strip()
+        ip_rname_vals = ip_df[ip_rname_col].astype(str).str.strip()
         ip_key = list(zip(
-            ip_df[ip_scope_col].astype(str).str.strip(),
-            ip_df[ip_rname_col].astype(str).str.strip()
+            ip_scope_vals,
+            ip_rname_vals.apply(lambda x: normalize_rname_for_scope(scope_key_main, x))
         ))
         ip_counts = pd.Series(ip_key).value_counts().to_dict()
     else:
@@ -552,6 +586,32 @@ mask_neq = reg != final
 df.loc[mask_neq & (item_status != "M"), "price_rule_check"] = "FAIL"
 df.loc[mask_neq & (markdown.apply(is_na_text)), "price_rule_check"] = "FAIL"
 
+# Additional rule: if item_status is n/a, then regularprice, finalprice, markdown_price must all be n/a to pass
+mask_item_na = item_status.apply(is_na_text)
+mask_prices_all_na = reg.apply(is_na_text) & final.apply(is_na_text) & markdown.apply(is_na_text)
+df.loc[mask_item_na & ~mask_prices_all_na, "price_rule_check"] = "FAIL"
+
+# Additional rule: if item_status is M, markdown_price cannot be n/a
+mask_item_m = item_status.astype(str).str.strip() == "M"
+df.loc[mask_item_m & markdown.apply(is_na_text), "price_rule_check"] = "FAIL"
+
+# Additional rule: if item_status is R, markdown_price must be n/a
+mask_item_r = item_status.astype(str).str.strip() == "R"
+df.loc[mask_item_r & ~markdown.apply(is_na_text), "price_rule_check"] = "FAIL"
+
+# Additional rule: regularprice must be >= finalprice unless both are n/a or Not Available
+reg_num = pd.to_numeric(reg.where(~reg.apply(is_na_text) & ~reg.apply(is_not_available), None), errors="coerce")
+final_num = pd.to_numeric(final.where(~final.apply(is_na_text) & ~final.apply(is_not_available), None), errors="coerce")
+both_na = (reg.apply(is_na_text) | reg.apply(is_not_available)) & (final.apply(is_na_text) | final.apply(is_not_available))
+df.loc[~both_na & (reg_num < final_num), "price_rule_check"] = "FAIL"
+
+# Additional rule: if stock_status is In Stock, regular/final price cannot be n/a; Out of Stock can be n/a
+stock_status_s = col_series(df, "stock_status").astype(str).str.strip()
+mask_instock = stock_status_s == "In Stock"
+mask_reg_na = reg.apply(is_na_text)
+mask_final_na = final.apply(is_na_text)
+df.loc[mask_instock & (mask_reg_na | mask_final_na), "price_rule_check"] = "FAIL"
+
 # ================= STOCK / AVAILABILITY CHECK =================
 stock_status = col_series(df, "stock_status").astype(str).str.strip()
 availability = col_series(df, "availability").astype(str).str.strip()
@@ -585,6 +645,84 @@ if na_cols:
     df["stock_na_check"] = np.where((mask_in | mask_out) & na_mask, "FAIL", "PASS")
 else:
     df["stock_na_check"] = "PASS"
+
+# ================= PID NOT NA CHECK =================
+df["pid_check"] = "PASS"
+pid_col = None
+for c in df.columns:
+    if c.lower() == "pid":
+        pid_col = c
+        break
+if pid_col:
+    pid_vals = col_series(df, pid_col).astype(str).str.strip()
+    # n/a is NOT allowed (treat as missing)
+    pid_bad = pid_vals.str.lower().isin({"", "n/a", "na", "null", "nan"})
+    df.loc[pid_bad, "pid_check"] = "FAIL"
+
+# ================= RNAME NOT NA CHECK (merge into rname_check) =================
+rname_col = None
+for c in df.columns:
+    if c.lower() == "rname":
+        rname_col = c
+        break
+if rname_col:
+    rname_vals = col_series(df, rname_col).astype(str).str.strip()
+    rname_bad = rname_vals.str.lower().isin({"", "n/a", "na", "null", "nan"})
+    df.loc[rname_bad, "rname_check"] = "FAIL"
+
+# ================= REQUIRED NON-NA FIELDS CHECK =================
+REQUIRED_NON_NA_COLS = [
+    "country","pname","brand","availability","rating","review","productimage",
+    "date","scope","stock_status","multiple_url","large_image","small_image",
+    "spid","item_status"
+]
+df["required_non_na_check"] = "PASS"
+df["required_non_na_detail"] = ""
+
+# benefit alias for country already mapped to country; also handle case-insensitive lookups
+for req in REQUIRED_NON_NA_COLS:
+    col_match = None
+    for c in df.columns:
+        if c.lower() == req:
+            col_match = c
+            break
+    if not col_match:
+        continue
+    vals = col_series(df, col_match).astype(str).str.strip()
+    # only treat explicit n/a values as invalid (do NOT treat blanks as n/a)
+    bad = vals.str.lower().isin({"n/a","na","null","nan"})
+    if bad.any():
+        df.loc[bad, "required_non_na_check"] = "FAIL"
+        df.loc[bad, "required_non_na_detail"] = df.loc[bad, "required_non_na_detail"] + f"{col_match} cant have n/a values | "
+
+# Hermes only: currency cannot be n/a
+scope_key_for_na = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
+if scope_key_for_na == "hermes":
+    currency_col = None
+    for c in df.columns:
+        if c.lower() == "currency":
+            currency_col = c
+            break
+    if currency_col:
+        cur_vals = col_series(df, currency_col).astype(str).str.strip()
+        cur_bad = cur_vals.str.lower().isin({"n/a","na","null","nan"})
+        if cur_bad.any():
+            df.loc[cur_bad, "required_non_na_check"] = "FAIL"
+            df.loc[cur_bad, "required_non_na_detail"] = df.loc[cur_bad, "required_non_na_detail"] + f"{currency_col} cant have n/a values | "
+
+# Hermes only: UPC must not be in scientific notation
+if scope_key_for_na == "hermes":
+    upc_col = None
+    for c in df.columns:
+        if c.lower() == "upc":
+            upc_col = c
+            break
+    if upc_col:
+        upc_vals = col_series(df, upc_col).astype(str).str.strip()
+        sci_mask = upc_vals.str.contains(r"[eE]\\+?\\d+", regex=True, na=False)
+        if sci_mask.any():
+            df.loc[sci_mask, "required_non_na_check"] = "FAIL"
+            df.loc[sci_mask, "required_non_na_detail"] = df.loc[sci_mask, "required_non_na_detail"] + f"{upc_col} in scientific notation | "
 
 # ================= NOT AVAILABLE VALUE CHECK =================
 NOT_AVAILABLE_REQUIRED_BY_SCOPE = {
@@ -867,6 +1005,9 @@ FAILURE_MESSAGE_MAP = {
     "missing_columns_check": "One or more required columns are missing for this scope.",
     "extra_columns_check": "One or more extra columns exist that are not in the required template.",
     "not_available_values_check": "Not available rule failed: when stock_status = 'Not available', only required columns may have values; all other columns must be NA/Not available.",
+    "pid_check": "PID is missing or n/a.",
+    "rname_check": "Retailer name (rname) is not valid for this scope or is missing/n/a.",
+    "required_non_na_check": "One or more required fields contain n/a values.",
     "rating_normalization_check": "Rating format rule failed (MFK/Hermes): integers must be X.0 and zero must be '0'.",
     "rating_review_stock_check": "For In Stock/Out of Stock (MFK/Hermes), rating and review cannot be 'Not available'.",
     "na_sku_input_check": "Not available SKU must match input PName and SKUVARIENT (MFK/Hermes, key=rname+base_id+country).",
@@ -882,9 +1023,14 @@ for col in check_cols:
 df["failure_reason"] = df["failure_reason"].str.rstrip(" | ")
 df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
 
-# ================= OUTPUT =================
-df.to_csv(OUTPUT_FILE.with_suffix(".csv"), index=False)
+# Append detailed non-NA failure messages if present
+if "required_non_na_detail" in df.columns:
+    detail = df["required_non_na_detail"].str.rstrip(" | ")
+    df.loc[detail != "", "failure_reason"] = df.loc[detail != "", "failure_reason"] + " | " + detail
+    df["failure_reason"] = df["failure_reason"].str.strip(" | ")
+    df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
 
+# ================= OUTPUT =================
 with pd.ExcelWriter(OUTPUT_FILE, engine="xlsxwriter", engine_kwargs={"options": {"strings_to_urls": False}}) as writer:
     df.to_excel(writer, sheet_name="PDP_Data", index=False)
     if required_columns:

@@ -1,0 +1,565 @@
+﻿rname,scope,country
+Sephora,PCD_France,France
+Douglas IT,ADP,Italy
+Sephora FR,ADP,France
+Ounass AE,ADP,UAE
+Nordstrom,MFK,United States
+John Lewis,MFK,United Kingdom
+Costco,INTEL,US
+Notino_DE,COTY_EDM_Prestige,Germany
+Notino_CZ,COTY_EDM_Prestige,Czech Republic
+KICKS_SE,COTY_EDM_Prestige,Sweden
+Notino_DK,COTY_EDM_Consumer Beauty,Denmark
+Dm_HR,COTY_EDM_Consumer Beauty,Croatia
+John Lewis Lux,COTY_UK_Prestige,UK
+Very CB,COTY_UK_Consumer Beauty,UK
+Dm,COTY_DACH_Consumer Beauty,Germany
+Amazon DE CB,COTY_DACH_Consumer Beauty,Germany
+Amazon Lux,COTY,US
+Saks,COTY,US
+Amazon CB,COTY_US_Consumer Beauty,US
+ASOS,COTY_US_Consumer Beauty,US
+Primor CB,COTY_Spain_Consumer Beauty,Spain
+Target,Grocery_POC_US_Coffee_Creamers,US
+Walmart,Grocery_POC_US_Vodka,US
+Douglas NL,COTY_Benelux_Prestige,Netherlands
+Wehkamp Lux,COTY_Benelux_Prestige,Netherlands
+El Nino DE EMEA Lux,COTY_EMEA_Prestige,Germany
+Notino UK EMEA Lux,COTY_EMEA_Prestige,UK
+Bol NL EMEA Lux,COTY_EMEA_Prestige,Netherlands
+El Nino PL EMEA Lux,COTY_EMEA_Prestige,Poland
+Target,Grocery_POC_US_Aerated_Beverages,US
+Sephora_IN,COTY_SEA_Prestige,India
+Amazon SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+Takealot,COTY_South Africa_Prestige,South Africa
+Woolworths,COTY_South Africa_Prestige,South Africa
+Edgars,COTY_South Africa_Prestige,South Africa
+Douglas IT EMEA CB,COTY_EMEA_Consumer Beauty,Italy
+Rossmann PL EMEA CB,COTY_EMEA_Consumer Beauty,Poland
+Amazon IT Lux,COTY_Italy_Prestige,Italy
+Noon SA CB,COTY_Middle East_Consumer Beauty,Saudi Arabia
+Amazon Fresh,Grocery_POC_US_Energy_Bars,US
+Amazon,Grocery_POC_US_Toilet_Paper,US
+Sephora_ES,PCD_ES,Spain
+Breuninger,MFK,Germany
+Breuninger,Hermes_Europe,Germany
+Parfym_SE,COTY_EDM_Prestige,Sweden
+Notino_SE,COTY_EDM_Consumer Beauty,Sweden
+Matas_DK,COTY_EDM_Consumer Beauty,Denmark
+Boots Lux,COTY_UK_Prestige,UK
+Amazon Fresh,Grocery_POC_US_Coffee_Creamers,US
+Douglas ES EMEA Lux,COTY_EMEA_Prestige,Spain
+LookFantastic UK EMEA Lux,COTY_EMEA_Prestige,UK
+Amazon ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Kroger,Grocery_POC_US_Beer,US
+Walmart,Grocery_POC_US_Beer,US
+Rouge,COTY_Argentina_Prestige,Argentina
+Rive Gauche,LFB_Givenchy_Kenzo,Russia
+Kruidvat,COTY_Benelux_Consumer Beauty,Netherlands
+Kingpower,COTY_TRAP_Prestige,Thailand
+Takealot_CB,COTY_South Africa_Consumer Beauty,South Africa
+Douglas DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Douglas IT,COTY_Italy_Prestige,Italy
+Echarme Lux,COTY_Italy_Prestige,Italy
+Amazon AU CB,COTY_Australia_Consumer Beauty,Australia
+Pharmaprix FR CB,COTY_Canada_Consumer Beauty,Canada
+Notino_RO,PCD_RO,Romania
+Tmall_CB,COTY_China_Consumer Beauty,China
+Douglas_ES,PCD_ES,Spain
+Galleria,MFK,Korea
+Beymen,MFK,Turkey
+Notino_CZ,PCD_CZ,Czech Republic
+Douglas_PL,PCD_PL,Poland
+Cult Beauty,Hermes_Europe,United Kingdom
+Nocibe,Hermes_Europe,France
+Notino ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Amazon IT EMEA CB,COTY_EMEA_Consumer Beauty,Italy
+My Origines FR EMEA CB,COTY_EMEA_Consumer Beauty,France
+Incenza,Hermes_Europe,France
+Sephora,MUFE,France
+John Lewis,LFB_Givenchy_Kenzo,UK
+Sephora_US,LFB_Givenchy_Kenzo,US
+Douglas DE,ADP,Germany
+Space NK,ADP,United Kingdom
+Galeries Lafayette,MFK,France
+Best Buy,INTEL,US
+HP,INTEL,US
+Notino_UA,COTY_EDM_Prestige,Ukraine
+Matas_DK,COTY_EDM_Prestige,Denmark
+Notino_IT,COTY_EDM_Prestige,Italy
+Elnino_DE,COTY_EDM_Consumer Beauty,Germany
+Notino_PL,COTY_EDM_Consumer Beauty,Poland
+The Perfume Shop Lux,COTY_UK_Prestige,UK
+ASOS UK Lux,COTY_UK_Prestige,UK
+LookFantastic UK Lux,COTY_UK_Prestige,UK
+ASOS UK CB,COTY_UK_Consumer Beauty,UK
+LookFantastic UK CB,COTY_UK_Consumer Beauty,UK
+Flaconi DE CB,COTY_DACH_Consumer Beauty,Germany
+Target Lux,COTY,US
+Walgreens,COTY_US_Consumer Beauty,US
+Perfumerias CB,COTY_Spain_Consumer Beauty,Spain
+Kroger,Grocery_POC_US_Coffee_Creamers,US
+Walmart,Grocery_POC_US_Cheese,US
+Sephora PL EMEA Lux,COTY_EMEA_Prestige,Poland
+Notino FR EMEA Lux,COTY_EMEA_Prestige,France
+Primor ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Perfumerias Lux,COTY_Spain_Prestige,Spain
+El Corte Ingles Lux,COTY_Spain_Prestige,Spain
+Sephora_RU,LFB_Givenchy_Kenzo,Russia
+Douglas NL CB,COTY_Benelux_Consumer Beauty,Netherlands
+Sunrise,COTY_TRAP_Prestige,China
+My Origines ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+LookFantastic IT EMEA CB,COTY_EMEA_Consumer Beauty,Italy
+Boots UK EMEA CB,COTY_EMEA_Consumer Beauty,UK
+Sephora IT,COTY_Italy_Prestige,Italy
+Namshi UAE CB,COTY_Middle East_Consumer Beauty,United Arab Emirates
+Gold Apple,MFK,Russia
+Albertsons,Grocery_POC_US_Sparkling_Water,US
+Heinemann FRA EMEA,COTY_EMEA_Prestige,Germany
+El Corte Ingles,COTY_EMEA_Prestige,Spain
+Sephora SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+Douglas,Hermes_Europe,Germany
+Elnino_CZ,COTY_EDM_Prestige,Czech Republic
+HondosCenter,COTY_EDM_Consumer Beauty,Greece
+Amazon UK Lux,COTY_UK_Prestige,UK
+The Fragrance Shop Lux,COTY_UK_Prestige,UK
+Boots CB,COTY_UK_Consumer Beauty,UK
+Macys,COTY,US
+Target,COTY_US_Consumer Beauty,US
+Sephora UK EMEA Lux,COTY_EMEA_Prestige,UK
+Notino DE EMEA Lux,COTY_EMEA_Prestige,Germany
+Beautysuccess,COTY_France_Consumer Beauty,France
+Sephora BR,COTY_Brazil_Prestige,Brazil
+Sephora_MY,COTY_SEA_Prestige,Malaysia
+Amazon FR EMEA CB,COTY_EMEA_Consumer Beauty,France
+Amazon UK EMEA CB,COTY_EMEA_Consumer Beauty,UK
+El Nino PL EMEA CB,COTY_EMEA_Consumer Beauty,Poland
+Ici Paris XL NL EMEA CB,COTY_EMEA_Consumer Beauty,Netherlands
+Namshi SA CB,COTY_Middle East_Consumer Beauty,Saudi Arabia
+Albertsons,Grocery_POC_US_Frozen_Foods,US
+Amazon CA CB,COTY_Canada_Consumer Beauty,Canada
+Flaconi_CZ,COTY_EDM_Consumer Beauty,Czech Republic
+Foschini Lux,COTY_South Africa_Prestige,South Africa
+Notino FR CB,COTY_France_Consumer Beauty,France
+Douglas_CZ,PCD_CZ,Czech Republic
+Very Lux,COTY_UK_Prestige,UK
+Sephora,COTY,US
+GoPuff,COTY_US_Consumer Beauty,US
+Douglas PL EMEA Lux,COTY_EMEA_Prestige,Poland
+Noon UAE CB,COTY_Middle East_Consumer Beauty,United Arab Emirates
+Amazon Fresh,Grocery_POC_US_Frozen_Foods,US
+JD,COTY_China_Consumer Beauty,China
+Kalista,Hermes_Europe,France
+Notino NL EMEA Lux,COTY_EMEA_Prestige,Netherlands
+Notino ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+Sephora,Shiseido_POC,US
+Macys,Shiseido_POC,US
+Sephora ES,Fresh Cosmetics,Spain
+Sephora,MUFE,United States
+Croma,INTEL,India
+Nocibe,PCD_France,France
+Notino_FR,PCD_France,France
+Parfumdo,PCD_France,France
+Sephora_FR,LFB_Givenchy_Kenzo,France
+Parfumdreams,ADP,Germany
+Flaconi,MFK,Germany
+Sephora FR,Fresh Cosmetics,France
+Notino_DE,PCD_DE,Germany
+Flaconi,PCD_DE,Germany
+Acer,INTEL,US
+Douglas_RO,COTY_EDM_Prestige,Romania
+Makeup_DE,COTY_EDM_Prestige,Germany
+Makeup_PL,COTY_EDM_Consumer Beauty,Poland
+Eva_UA,COTY_EDM_Consumer Beauty,Ukraine
+Elnino_CZ,COTY_EDM_Consumer Beauty,Czech Republic
+KICKS_SE,COTY_EDM_Consumer Beauty,Sweden
+Notino_FR,COTY_EDM_Consumer Beauty,France
+Falabella_CO,COTY_LATAM_Prestige,Colombia
+Falabella_PE,COTY_LATAM_Prestige,Peru
+Falabella_CL,COTY_LATAM_Prestige,Chile
+Ulta Lux,COTY,US
+Walmart,COTY_US_Consumer Beauty,US
+Ici Paris XL BE,COTY_Benelux_Prestige,Belgium
+Amazon FR EMEA Lux,COTY_EMEA_Prestige,France
+Amazon NL EMEA Lux,COTY_EMEA_Prestige,Netherlands
+LookFantastic IT EMEA Lux,COTY_EMEA_Prestige,Italy
+Dufry_UK_Lux,COTY_TREU_Prestige,UK
+Kakao Talk Gift,COTY_Korea_Prestige,Korea
+Shinsegae,COTY_Korea_Prestige,Korea
+Parfumerie,COTY_Argentina_Prestige,Argentina
+Namshi UAE Lux,COTY_Middle East_Prestige,United Arab Emirates
+Amazon UAE Lux,COTY_Middle East_Prestige,United Arab Emirates
+Namshi SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+The Perfume Shop UK EMEA CB,COTY_EMEA_Consumer Beauty,UK
+Amazon DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+El Nino IT EMEA CB,COTY_EMEA_Consumer Beauty,Italy
+Ditano,COTY_Italy_Prestige,Italy
+Target,Grocery_POC_US_Sparkling_Water,US
+Notino_GR,PCD_GR,Greece
+Notino FR Lux,COTY_France_Prestige,France
+Sephora FR Lux,COTY_France_Prestige,France
+Douglas,Hermes_Europe,Italy
+Ounass,MFK,UAE
+Notino_PL,COTY_EDM_Prestige,Poland
+Notino_DE,COTY_EDM_Consumer Beauty,Germany
+Bloomingdales,COTY,US
+Rite Aid,COTY_US_Consumer Beauty,US
+Bol NL LUX,COTY_Benelux_Prestige,Netherlands
+Ici Paris XL NL EMEA Lux,COTY_EMEA_Prestige,Netherlands
+Sephora IT EMEA Lux,COTY_EMEA_Prestige,Italy
+Amazon DE EMEA Lux,COTY_EMEA_Prestige,Germany
+My Origines FR CB,COTY_France_Consumer Beauty,France
+Douglas ES Lux,COTY_Spain_Prestige,Spain
+iShopchangi,COTY_TRAP_Prestige,Singapore
+Flaconi DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Bol NL EMEA CB,COTY_EMEA_Consumer Beauty,Netherlands
+Chemist Warehouse Lux,COTY_Australia_Prestige,Australia
+David Jones,COTY_Australia_Prestige,Australia
+Target,Grocery_POC_US_Toilet_Paper,US
+Nocibe FR Lux,COTY_France_Prestige,France
+Notino_PL,PCD_PL,Poland
+John Lewis,Hermes_Europe,United Kingdom
+Myntra,COTY_SEA_Prestige,India
+Pinalli,COTY_Italy_Prestige,Italy
+Notino_ES,PCD_ES,Spain
+El Palacio de Hierro,DSA_Converse_POC,Mexico
+Macys,Hermes_Americas,United States
+Douglas_IT,PCD_IT,Italy
+Sephora_IT,PCD_IT,Italy
+BestBuy,Grocery_POC_US_Home_Appliances,US
+Flaconi,LFB_Givenchy_Kenzo,Germany
+Sephora US,ADP,United States
+Saks Fifth Avenue,MFK,United States
+Selfridges,MFK,United Kingdom
+Harvey Nichols,MFK,United Kingdom
+Douglas_PL,COTY_EDM_Prestige,Poland
+Elnino_DE,COTY_EDM_Prestige,Germany
+Parfym_SE,COTY_EDM_Consumer Beauty,Sweden
+HondosCenter,COTY_EDM_Prestige,Greece
+Makeup_UA,COTY_EDM_Consumer Beauty,Ukraine
+Amazon UK CB,COTY_UK_Consumer Beauty,UK
+Douglas DE CB,COTY_DACH_Consumer Beauty,Germany
+Kohls,COTY,US
+Ulta CB,COTY_US_Consumer Beauty,US
+Albertsons,Grocery_POC_US_Cheese,US
+Flaconi_NL,COTY_Benelux_Prestige,Netherlands
+Boots UK EMEA Lux,COTY_EMEA_Prestige,UK
+Flaconi FR EMEA Lux,COTY_EMEA_Prestige,France
+Amazon Fresh,Grocery_POC_US_Aerated_Beverages,US
+Target,Grocery_POC_US_Beer,US
+Dufry_SP_Lux,COTY_TREU_Prestige,Spain
+James Richardson,COTY_TREU_Prestige,Israel
+Amazon FR CB,COTY_France_Consumer Beauty,France
+Perfumes Club Lux,COTY_Spain_Prestige,Spain
+Bol NL CB,COTY_Benelux_Consumer Beauty,Netherlands
+Etos,COTY_Benelux_Consumer Beauty,Netherlands
+Amazon NL CB,COTY_Benelux_Consumer Beauty,Netherlands
+Lotte,COTY_TRAP_Prestige,Korea
+El Nino DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Notino NL EMEA CB,COTY_EMEA_Consumer Beauty,Netherlands
+Amazon Fresh,Grocery_POC_US_Sparkling_Water,US
+Amazon,Grocery_POC_US_Frozen_Foods,US
+Primor,PCD_ES,Spain
+Saks Fifth Avenue,Hermes_Americas,United States
+Douglas_HU,COTY_EDM_Prestige,Hungary
+Sokos,COTY_EDM_Consumer Beauty,Finland
+The Perfume Shop UK EMEA Lux,COTY_EMEA_Prestige,UK
+Amazon,Grocery_POC_US_Beer,US
+El Palacio de Hierro,COTY_Mexico_Prestige,Mexico
+Farmacity,COTY_Argentina_Consumer Beauty,Argentina
+Notino UK EMEA CB,COTY_EMEA_Consumer Beauty,UK
+Notino FR EMEA CB,COTY_EMEA_Consumer Beauty,France
+JD Sports,DSA_Converse_POC,Australia
+Noon UAE Lux,COTY_Middle East_Prestige,United Arab Emirates
+Sephora_PL,PCD_PL,Poland
+Marionnaud,Hermes_Europe,France
+Amazon,Grocery_POC_US_Sparkling_Water,US
+My Origines FR Lux,COTY_France_Prestige,France
+Sephora FR,MFK,France
+Neiman Marcus,Hermes_Americas,United States
+Nordstrom,Shiseido_POC,US
+Notino_IT,PCD_IT,Italy
+Nordstrom,Fresh Cosmetics,United States
+ASOS,DSA_Ralph_Lauren_POC,UK
+Albertsons,Sargento_POC,US
+Kroger,Sargento_POC,US
+Marionnaud,PCD_France,France
+Douglas,LFB_Givenchy_Kenzo,Germany
+Macys,LFB_Givenchy_Kenzo,US
+Nordstrom,LFB_Givenchy_Kenzo,US
+John Lewis,ADP,United Kingdom
+Nordstrom,ADP,United States
+Sephora IT,ADP,Italy
+Nose,MFK,France
+Escentials,MFK,Singapore
+Mecca,MFK,Australia
+Sams Club,INTEL,US
+Lenovo,INTEL,US
+Shop Super-pharm,COTY_EDM_Prestige,Israel
+Notino_DK,COTY_EDM_Prestige,Denmark
+Shop Super-pharm,COTY_EDM_Consumer Beauty,Israel
+Sephora UK Lux,COTY_UK_Prestige,UK
+Superdrug Lux,COTY_UK_Prestige,UK
+Galeria,COTY_DACH_Prestige,Germany
+Walmart,Grocery_POC_US_Coffee_Creamers,US
+Amazon Fresh,Grocery_POC_US_Cheese,US
+Flaconi DE EMEA Lux,COTY_EMEA_Prestige,Germany
+Amazon IT CB,COTY_Italy_Consumer Beauty,Italy
+Epoca Cosmeticos,COTY_Brazil_Prestige,Brazil
+Amazon BR,COTY_Brazil_Prestige,Brazil
+Sephora_TH,COTY_SEA_Prestige,Thailand
+Dm PL EMEA CB,COTY_EMEA_Consumer Beauty,Poland
+Amazon ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+Flaconi FR EMEA CB,COTY_EMEA_Consumer Beauty,France
+Chemist Warehouse CB,COTY_Australia_Consumer Beauty,Australia
+Kroger,Grocery_POC_US_Sparkling_Water,US
+Walmart,Grocery_POC_US_Frozen_Foods,US
+Sephora_RO,PCD_RO,Romania
+Amazon,DSA_Converse_POC,Mexico
+Noon SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+Tendance Parfums,Hermes_Europe,France
+Bloomingdales,Hermes_Americas,United States
+Sephora CA,Fresh Cosmetics,Canada
+Makeup_DE,COTY_EDM_Consumer Beauty,Germany
+Albertsons,Grocery_POC_US_Vodka,US
+Kruidvat Lux,COTY_Benelux_Prestige,Netherlands
+Deloox,COTY_Benelux_Prestige,Netherlands
+Notino NL Lux,COTY_Benelux_Prestige,Netherlands
+Amazon UK EMEA Lux,COTY_EMEA_Prestige,UK
+Amazon,Grocery_POC_US_Aerated_Beverages,US
+Druni Lux,COTY_Spain_Prestige,Spain
+Lazada_TH,COTY_SEA_Prestige,Thailand
+Mueller DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Perfumes Club ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+Centrepoint UAE CB,COTY_Middle East_Consumer Beauty,United Arab Emirates
+Walmart,Grocery_POC_US_Energy_Bars,US
+Kroger,Grocery_POC_US_Energy_Bars,US
+Sephora CA Lux,COTY_Canada_Prestige,Canada
+Amazon CA Lux,COTY_Canada_Prestige,Canada
+Kroger,Grocery_POC_US_Toilet_Paper,US
+Amazon_PL,COTY_EDM_Consumer Beauty,Poland
+Tmall,COTY_China_Prestige,China
+El Corte Ingles,PCD_ES,Spain
+ICI Paris XL,Hermes_Europe,Belgium
+Notino_FR,COTY_EDM_Prestige,France
+Douglas IT EMEA Lux,COTY_EMEA_Prestige,Italy
+My Origines ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Albertsons,Grocery_POC_US_Toilet_Paper,US
+Lagardere,COTY_EMEA_Prestige,France
+Druni ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+Lotte,MFK,Korea
+Sephora DE,Fresh Cosmetics,Germany
+John Lewis,DSA_Ralph_Lauren_POC,UK
+Ulta,LFB_Givenchy_Kenzo,US
+Nocibe,LFB_Givenchy_Kenzo,France
+Pinalli,ADP,Italy
+Flaconi,ADP,Germany
+Ulta,Fresh Cosmetics,United States
+Dell,INTEL,US
+Makeup_PL,COTY_EDM_Prestige,Poland
+Makeup_UA,COTY_EDM_Prestige,Ukraine
+Notino_RO,COTY_EDM_Prestige,Romania
+Elnino-parfum,COTY_EDM_Prestige,Poland
+LYKO_SE,COTY_EDM_Prestige,Sweden
+Sephora_PL,COTY_EDM_Prestige,Poland
+Elnino-parfum,COTY_EDM_Consumer Beauty,Poland
+Rossmann,COTY_DACH_Consumer Beauty,Germany
+Net-A-Porter,COTY,US
+Parfumdreams,COTY_DACH_Prestige,Germany
+Flaconi DE Lux,COTY_DACH_Prestige,Germany
+Amazon DE Lux,COTY_DACH_Prestige,Germany
+Amazon ES CB,COTY_Spain_Consumer Beauty,Spain
+El Corte Ingles CB,COTY_Spain_Consumer Beauty,Spain
+Amazon,Grocery_POC_US_Cheese,US
+April,COTY_Benelux_Prestige,Belgium
+Ici Paris XL NL,COTY_Benelux_Prestige,Netherlands
+Douglas NL EMEA Lux,COTY_EMEA_Prestige,Netherlands
+Superdrug UK EMEA Lux,COTY_EMEA_Prestige,UK
+Heinemann DE EMEA Lux,COTY_EMEA_Prestige,Germany
+Liverpool,COTY_Mexico_Prestige,Mexico
+Paco Perfumerias,COTY_Spain_Prestige,Spain
+Nykaa,COTY_SEA_Prestige,India
+Amazon_IN Lux,COTY_SEA_Prestige,India
+Superbalist,COTY_South Africa_Prestige,South Africa
+Rossmann DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Notino PL EMEA CB,COTY_EMEA_Consumer Beauty,Poland
+Albertsons,Grocery_POC_US_Energy_Bars,US
+Shoppers Drugmart EN CB,COTY_Canada_Consumer Beauty,Canada
+Pharmaprix FR Lux,COTY_Canada_Prestige,Canada
+Shoppers Drugmart EN Lux,COTY_Canada_Prestige,Canada
+Heinemann VIE EMEA,COTY_EMEA_Prestige,Austria
+Flaconi_CZ,COTY_EDM_Prestige,Czech Republic
+Eveandboy,COTY_SEA_Prestige,Thailand
+Sephora UAE Lux,COTY_Middle East_Prestige,United Arab Emirates
+Harrods,MFK,United Kingdom
+Sephora_CZ,PCD_CZ,Czech Republic
+Notino,Hermes_Europe,Poland
+Sephora,Hermes_Europe,France
+My Origines,Hermes_Europe,France
+Douglas DE,MFK,Germany
+Notino_UK,COTY_EDM_Prestige,UK
+Kroger,Grocery_POC_US_Cheese,US
+Amazon IT EMEA Lux,COTY_EMEA_Prestige,Italy
+Notino PL EMEA Lux,COTY_EMEA_Prestige,Poland
+Notino IT EMEA Lux,COTY_EMEA_Prestige,Italy
+Nocibe FR EMEA Lux,COTY_EMEA_Prestige,France
+Albertsons,Grocery_POC_US_Beer,US
+Wehkamp CB,COTY_Benelux_Consumer Beauty,Netherlands
+Central Online,COTY_SEA_Prestige,Thailand
+Sephora_ID,COTY_SEA_Prestige,Indonesia
+LookFantastic ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+Dm DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Amazon UAE CB,COTY_Middle East_Consumer Beauty,United Arab Emirates
+Amazon SA CB,COTY_Middle East_Consumer Beauty,Saudi Arabia
+Target,Grocery_POC_US_Frozen_Foods,US
+Avolta EMEA,COTY_EMEA_Prestige,Spain
+Flaconi_SE,COTY_EDM_Prestige,Sweden
+Macys,MFK,United States
+Mediamarkt,INTEL,Germany
+Amazon_PL,COTY_EDM_Prestige,Poland
+Primor,Hermes_Europe,Spain
+Ulta,Shiseido_POC,US
+Parfumdo,Hermes_Europe,France
+Origines,PCD_France,France
+Parfumdreams,LFB_Givenchy_Kenzo,Germany
+Sephora,LFB_Givenchy_Kenzo,Germany
+El Corte Ingles,ADP,Spain
+Neiman Marcus,MFK,United States
+Bloomingdales,MFK,United States
+Sephora US,Fresh Cosmetics,United States
+Sephora IT,Fresh Cosmetics,Italy
+Parfumdreams,PCD_DE,Germany
+Sokos,COTY_EDM_Prestige,Finland
+Notino_SE,COTY_EDM_Prestige,Sweden
+Notino_CZ,COTY_EDM_Consumer Beauty,Czech Republic
+Notino_IT,COTY_EDM_Consumer Beauty,Italy
+Fragrance Direct Lux,COTY_UK_Prestige,UK
+Qvc,COTY,US
+Nordstrom,COTY,US
+Albertsons,Grocery_POC_US_Coffee_Creamers,US
+Target,Grocery_POC_US_Cheese,US
+Etos Lux,COTY_Benelux_Prestige,Netherlands
+LookFantastic DE EMEA Lux,COTY_EMEA_Prestige,Germany
+Perfumes Club ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Mueller DE EMEA Lux,COTY_EMEA_Prestige,Germany
+Nocibe FR CB,COTY_France_Consumer Beauty,France
+Amazon ES Lux,COTY_Spain_Prestige,Spain
+Arenal Lux,COTY_Spain_Prestige,Spain
+Beautye,COTY_Italy_Consumer Beauty,Italy
+Beleza Na Web,COTY_Brazil_Prestige,Brazil
+Primor ES EMEA CB,COTY_EMEA_Consumer Beauty,Spain
+Notino IT EMEA CB,COTY_EMEA_Consumer Beauty,Italy
+Amazon PL EMEA CB,COTY_EMEA_Consumer Beauty,Poland
+Kroger,Grocery_POC_US_Frozen_Foods,US
+Hondos Center,PCD_GR,Greece
+Attica,PCD_GR,Greece
+Sephora_GR,PCD_GR,Greece
+Flaconi_DK,COTY_EDM_Prestige,Denmark
+Sensation,COTY_Italy_Prestige,Italy
+Marionnaud FR Lux,COTY_France_Prestige,France
+Niceone SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+Otto,INTEL,Germany
+Arenal CB,COTY_Spain_Consumer Beauty,Spain
+Target,Grocery_POC_US_Vodka,US
+Amazon NL Lux,COTY_Benelux_Prestige,Netherlands
+El Nino IT EMEA Lux,COTY_EMEA_Prestige,Italy
+Albertsons,Grocery_POC_US_Aerated_Beverages,US
+Lazada_MY,COTY_SEA_Prestige,Malaysia
+Ounass UAE Lux,COTY_Middle East_Prestige,United Arab Emirates
+Notino DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+LookFantastic UK EMEA CB,COTY_EMEA_Consumer Beauty,UK
+Target,Grocery_POC_US_Energy_Bars,US
+Amazon,Grocery_POC_US_Energy_Bars,US
+Flaconi_SE,COTY_EDM_Consumer Beauty,Sweden
+Sephora MX,COTY_Mexico_Prestige,Mexico
+Sephora_SG,COTY_SEA_Prestige,Singapore
+Selfridges,Hermes_Europe,United Kingdom
+Nordstrom,Hermes_Americas,United States
+El Palacio de Hierro,PCD_MX,Mexico
+Sephora_BR,PCD_BR,Brazil
+Meijer,Sargento_POC,US
+Beauty Success,PCD_France,France
+Boots,LFB_Givenchy_Kenzo,UK
+The Perfume Shop,LFB_Givenchy_Kenzo,UK
+Marionnaud,LFB_Givenchy_Kenzo,France
+Selfridges,ADP,United Kingdom
+Shinsegae (Domestic),MFK,Korea
+De Bijenkorf,MFK,Netherlands
+Douglas,PCD_DE,Germany
+Newegg,INTEL,US
+Walmart,INTEL,US
+ASUS,INTEL,US
+Brocard_UA,COTY_EDM_Prestige,Ukraine
+Douglas_CZ,COTY_EDM_Prestige,Czech Republic
+LYKO_SE,COTY_EDM_Consumer Beauty,Sweden
+Bilka,COTY_EDM_Consumer Beauty,Denmark
+Selfridges Lux,COTY_UK_Prestige,UK
+Bloomingdales,MFK,UAE
+Dillards,COTY,US
+LookFantastic,COTY_US_Consumer Beauty,US
+Douglas DE Lux,COTY_DACH_Prestige,Germany
+Perfumes Club CB,COTY_Spain_Consumer Beauty,Spain
+Druni CB,COTY_Spain_Consumer Beauty,Spain
+Amazon,Grocery_POC_US_Coffee_Creamers,US
+Kroger,Grocery_POC_US_Vodka,US
+Amazon,Grocery_POC_US_Vodka,US
+LookFantastic ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Douglas DE EMEA Lux,COTY_EMEA_Prestige,Germany
+My Origines FR EMEA Lux,COTY_EMEA_Prestige,France
+Heinemann,COTY_TREU_Prestige,Germany
+Lotte_KR,COTY_Korea_Prestige,Korea
+Primor Lux,COTY_Spain_Prestige,Spain
+Di,COTY_Benelux_Consumer Beauty,Belgium
+Ounass SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+Superdrug UK EMEA CB,COTY_EMEA_Consumer Beauty,UK
+Heinemann DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Amazon NL EMEA CB,COTY_EMEA_Consumer Beauty,Netherlands
+Myer,COTY_Australia_Prestige,Australia
+Walmart,Grocery_POC_US_Sparkling_Water,US
+The Bay EN Lux,COTY_Canada_Prestige,Canada
+La Baie FR Lux,COTY_Canada_Prestige,Canada
+Avolta,COTY_EMEA_Prestige,UK
+Flaconi_DK,COTY_EDM_Consumer Beauty,Denmark
+Liverpool,DSA_Converse_POC,Mexico
+Fann,PCD_CZ,Czech Republic
+Parfumdreams,Hermes_Europe,Germany
+Sephora_CZ,COTY_EDM_Prestige,Czech Republic
+Notino_UK,COTY_EDM_Consumer Beauty,UK
+Superdrug CB,COTY_UK_Consumer Beauty,UK
+CVS,COTY_US_Consumer Beauty,US
+Amazon PL EMEA Lux,COTY_EMEA_Prestige,Poland
+Sephora FR EMEA Lux,COTY_EMEA_Prestige,France
+Druni ES EMEA Lux,COTY_EMEA_Prestige,Spain
+Kroger,Grocery_POC_US_Aerated_Beverages,US
+Walmart,Grocery_POC_US_Aerated_Beverages,US
+Juleriaque,COTY_Argentina_Prestige,Argentina
+Golden Apple,LFB_Givenchy_Kenzo,Russia
+Lazada_SG,COTY_SEA_Prestige,Singapore
+Faces SA Lux,COTY_Middle East_Prestige,Saudi Arabia
+Shilla,COTY_TRAP_Prestige,Korea
+Marionnaud IT,COTY_Italy_Prestige,Italy
+Amazon AU Lux,COTY_Australia_Prestige,Australia
+Walmart CA CB,COTY_Canada_Consumer Beauty,Canada
+Druni,PCD_ES,Spain
+Foot Locker,DSA_Converse_POC,Australia
+Myer,DSA_Converse_POC,Australia
+Boots,Hermes_Europe,United Kingdom
+Notino,Hermes_Europe,Italy
+Amazon,INTEL,Germany
+Superbalist_CB,COTY_South Africa_Consumer Beauty,South Africa
+LookFantastic DE EMEA CB,COTY_EMEA_Consumer Beauty,Germany
+Walmart,Grocery_POC_US_Toilet_Paper,US
+Notino,Hermes_Europe,Czech Republic
+Douglas,Hermes_Europe,Netherlands
+Flaconi,Hermes_Europe,Germany
+Amazon,Grocery_POC_US_Home_Appliances,US
+Costco,Grocery_POC_US_Home_Appliances,US
+boots_uk,BNC,United Kingdom
+douglas_de,BNC,Germany
+lookfantastic_uk,BNC,United Kingdom
+sephora,BNC,United States
+sephora_ca,BNC,Canada
+sephora_es,BNC,Spain
+sephora_fr,BNC,France
+sephora_it,BNC,Italy
+ulta,BNC,United States
