@@ -310,9 +310,14 @@ def scope_key_from_value(val: str) -> str:
 
 # Normalize retailer names for specific scopes (kept minimal)
 def normalize_rname_for_scope(scope_key: str, name: str) -> str:
-    if scope_key == "mfk" and str(name).strip().lower() == "nordstrom":
+    n = str(name).strip()
+    if scope_key == "mfk" and n.lower() == "nordstrom":
         return "Nordstrom"
-    return str(name).strip()
+    if scope_key == "hermes":
+        # normalize to base retailer name: take prefix before underscore and remove spaces
+        base = n.split("_")[0].replace(" ", "")
+        return base.lower()
+    return n
 
 # Read input header without full load
 def get_file_columns(fp: Path, display_override: str | None = None) -> list[str]:
@@ -406,6 +411,8 @@ if cache_path and os.path.exists(cache_path):
             ip_input_map = decode_input_map(payload.get("input_map", {}))
             if scope_key_main == "mfk" and ip_counts_precomputed:
                 ip_counts_precomputed = {(k[0], normalize_rname_for_scope("mfk", k[1])): v for k, v in ip_counts_precomputed.items()}
+            if scope_key_main == "hermes" and ip_counts_precomputed:
+                ip_counts_precomputed = {(k[0], normalize_rname_for_scope("hermes", k[1])): v for k, v in ip_counts_precomputed.items()}
             cache_loaded = True
             print("✅ Loaded input counts cache", flush=True)
         else:
@@ -712,6 +719,7 @@ if scope_key_for_na == "hermes":
 
 # Hermes only: UPC must not be in scientific notation
 if scope_key_for_na == "hermes":
+    df["upc_check"] = "PASS"
     upc_col = None
     for c in df.columns:
         if c.lower() == "upc":
@@ -721,6 +729,7 @@ if scope_key_for_na == "hermes":
         upc_vals = col_series(df, upc_col).astype(str).str.strip()
         sci_mask = upc_vals.str.contains(r"[eE]\\+?\\d+", regex=True, na=False)
         if sci_mask.any():
+            df.loc[sci_mask, "upc_check"] = "FAIL"
             df.loc[sci_mask, "required_non_na_check"] = "FAIL"
             df.loc[sci_mask, "required_non_na_detail"] = df.loc[sci_mask, "required_non_na_detail"] + f"{upc_col} in scientific notation | "
 
@@ -1012,6 +1021,7 @@ FAILURE_MESSAGE_MAP = {
     "rating_review_stock_check": "For In Stock/Out of Stock (MFK/Hermes), rating and review cannot be 'Not available'.",
     "na_sku_input_check": "Not available SKU must match input PName and SKUVARIENT (MFK/Hermes, key=rname+base_id+country).",
     "na_url_check": "For Not Available SKU (MFK/Hermes), url must be 'Not Available' (not n/a).",
+    "upc_check": "UPC is in scientific notation (not allowed).",
 }
 
 check_cols = [c for c in FAILURE_MESSAGE_MAP.keys() if c in df.columns]
