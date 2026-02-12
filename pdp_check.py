@@ -731,7 +731,7 @@ if scope_key_for_na == "hermes":
             break
     if upc_col:
         upc_vals = col_series(df, upc_col).astype(str).str.strip()
-        sci_mask = upc_vals.str.contains(r"[eE]\\+?\\d+", regex=True, na=False)
+        sci_mask = upc_vals.str.contains(r"[eE]\+?\d+", regex=True, na=False)
         if sci_mask.any():
             df.loc[sci_mask, "upc_check"] = "FAIL"
             df.loc[sci_mask, "required_non_na_check"] = "FAIL"
