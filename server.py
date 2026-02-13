@@ -238,6 +238,7 @@ def execute_run(run_id: str):
         # 5. AI analysis
         # ---------------------------------------
         try:
+            log(run_id, "INFO", "AI analysis started")
             log(run_id, "INFO", "Sending output to AI")
 
             ai_report = analyze_output_with_gemini(output_local)
@@ -251,6 +252,9 @@ def execute_run(run_id: str):
             }).execute()
 
             log(run_id, "INFO", "AI report generated")
+            log(run_id, "INFO", f"AI summary: {ai_report.get('summary', '')}")
+            log(run_id, "INFO", f"AI accuracy: {ai_report.get('accuracy', '')}")
+            log(run_id, "INFO", f"AI verdict: {ai_report.get('verdict', '')}")
 
         except Exception as e:
             log(run_id, "ERROR", f"AI failed: {str(e)}")
@@ -651,6 +655,7 @@ def execute_pdp_run(run_id: str):
         # 5. AI analysis
         # -----------------------------
         try:
+            log(run_id, "INFO", "AI analysis started")
             log(run_id, "INFO", "Sending output to AI")
 
             ai_report = analyze_output_with_gemini(output_local)
@@ -664,6 +669,9 @@ def execute_pdp_run(run_id: str):
             }).execute()
 
             log(run_id, "INFO", "AI report generated")
+            log(run_id, "INFO", f"AI summary: {ai_report.get('summary', '')}")
+            log(run_id, "INFO", f"AI accuracy: {ai_report.get('accuracy', '')}")
+            log(run_id, "INFO", f"AI verdict: {ai_report.get('verdict', '')}")
 
         except Exception as e:
             log(run_id, "ERROR", f"AI failed: {str(e)}")
@@ -797,25 +805,22 @@ def download_ai_report_pdf(run_id: str):
     return FileResponse(tmp, media_type="application/pdf")
 
 @app.get("/run/{run_id}/logs")
-def get_run_logs(run_id: str):
-    try:
-        return (
-            supabase.table("run_logs")
-            .select("*")
-            .eq("run_id", run_id)
-            .order("created_at", desc=False)
-            .execute()
-            .data
-        )
-    except Exception:
-        return (
-            supabase.table("run_logs")
-            .select("*")
-            .eq("run_id", run_id)
-            .order("id", desc=False)
-            .execute()
-            .data
-        )
+def get_run_logs(run_id: str, since_id: int | None = None):
+    """
+    Return logs in insertion order. Optional since_id enables real-time polling.
+    """
+    q = (
+        supabase.table("run_logs")
+        .select("*")
+        .eq("run_id", run_id)
+    )
+    if since_id is not None:
+        q = q.gt("id", since_id)
+    return (
+        q.order("id", desc=False)
+        .execute()
+        .data
+    )
 
 @app.post("/input-run/{run_id}")
 def start_input_run(run_id: str, bg: BackgroundTasks):

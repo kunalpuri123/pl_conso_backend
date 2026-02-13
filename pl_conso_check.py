@@ -12,6 +12,10 @@ import difflib
 
 print("=== PL CONSO AUTOMATION STARTED ===")
 
+# simple stage logger
+def log_stage(msg):
+    print(f"🔹 {msg}", flush=True)
+
 def closest_token_match(value, candidates):
     val_tokens = set(normalize_text(value).split())
 
@@ -44,6 +48,7 @@ print(f"📄 OP File     : {OP_FILE}")
 print(f"📄 IP File     : {IP_FILE}")
 print(f"📄 Master File : {MASTER_FILE}")
 print(f"📄 Output File : {OUTPUT_FILE}")
+log_stage("Arguments validated")
 
 if not OP_FILE.exists():
     print(f"❌ OP file not found: {OP_FILE}")
@@ -76,51 +81,20 @@ def read_file(fp):
         return pd.read_csv(fp, dtype=str, keep_default_na=False)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
-# ================= CACHE HELPERS =================
-def file_sha256(fp, chunk_size=1024 * 1024):
-    h = hashlib.sha256()
-    with open(fp, "rb") as f:
-        for chunk in iter(lambda: f.read(chunk_size), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-def read_with_cache(fp, label):
-    cache_dir = Path(".pl_cache")
-    cache_dir.mkdir(exist_ok=True)
-
-    sha = file_sha256(fp)
-    cache_base = f"{label}_{fp.stem}_{sha}"
-    cache_data = cache_dir / f"{cache_base}.pkl"
-    cache_meta = cache_dir / f"{cache_base}.json"
-
-    if cache_data.exists() and cache_meta.exists():
-        try:
-            with open(cache_meta, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-            if meta.get("sha256") == sha and meta.get("filename") == fp.name:
-                print(f"✅ Cache hit for {label}: {fp.name}")
-                return pd.read_pickle(cache_data)
-        except Exception:
-            pass
-
-    print(f"⏳ Cache miss for {label}: {fp.name}. Reading file...")
-    df = read_file(fp)
-    try:
-        df.to_pickle(cache_data)
-        with open(cache_meta, "w", encoding="utf-8") as f:
-            json.dump({"filename": fp.name, "sha256": sha}, f)
-        print(f"✅ Cached {label}: {fp.name}")
-    except Exception as e:
-        print(f"⚠️ Failed to write cache for {label}: {e}")
-    return df
-
 # ================= LOAD FILES =================
 # ================= LOAD OUTPUT FIRST =================
 
+log_stage("Reading OP file")
 df = read_file(OP_FILE)
-ip_df = read_with_cache(IP_FILE, "ip")
-master_df = read_with_cache(MASTER_FILE, "master")
+log_stage(f"OP rows loaded: {len(df)}")
 
+log_stage("Reading IP file")
+ip_df = read_file(IP_FILE)
+log_stage(f"IP rows loaded: {len(ip_df)}")
+
+log_stage("Reading MASTER file")
+master_df = read_file(MASTER_FILE)
+log_stage(f"MASTER rows loaded: {len(master_df)}")
 
 print(f"📄 OP File     : {OP_FILE}")
 print(f"📄 IP File     : {IP_FILE}")
@@ -129,6 +103,7 @@ print(f"📄 Master File : {MASTER_FILE}")
 df.columns = [c.strip().lower() for c in df.columns]
 ip_df.columns = [c.strip().lower() for c in ip_df.columns]
 master_df.columns = [c.strip().lower() for c in master_df.columns]
+log_stage("Normalized column names")
 
 if "scope" not in df.columns and "scope_name" in df.columns:
     print("ℹ️ Renaming scope_name -> scope in OP file")
@@ -142,6 +117,7 @@ if "scope" not in df.columns:
 scopes_in_output = set(df["scope"].dropna().astype(str).str.strip())
 
 print("🔎 Scopes found in output:", scopes_in_output)
+log_stage(f"Scopes in output: {len(scopes_in_output)}")
 
 
 
@@ -166,6 +142,7 @@ if "scope" not in ip_df.columns:
 ip_df = ip_df[ip_df["scope"].isin(scopes_in_output)]
 
 print(f"✅ IP rows after scope filtering: {len(ip_df)}")
+log_stage("Filtered IP by scope")
 
 
 # =========================================================
@@ -181,11 +158,13 @@ for _, r in ip_df.iterrows():
     if url and url.lower() not in {"", "n/a", "na", "null", "nan"}:
         ip_scope_to_urls.setdefault(scope, set()).add(url)
 
+log_stage(f"Built IP scope->URL map: {len(ip_scope_to_urls)} scopes")
 
 # ================= NORMALIZE COLUMN NAMES =================
 df.columns = [c.strip().lower() for c in df.columns]
 ip_df.columns = [c.strip().lower() for c in ip_df.columns]
 master_df.columns = [c.strip().lower() for c in master_df.columns]
+log_stage("Normalized column names")
 
 if "scope" not in master_df.columns and "scope_name" in master_df.columns:
     print("ℹ️ Renaming scope_name -> scope in MASTER file")
@@ -354,6 +333,8 @@ for s, rn in valid_scope_rname:
 for s, c in valid_scope_country:
     scope_to_countries.setdefault(s, set()).add(c)
 
+log_stage(f"Master scopes: {len(valid_scopes)} | rname pairs: {len(valid_scope_rname)} | country pairs: {len(valid_scope_country)}")
+
 # ================= PRODUCTID CHECK =================
 def check_productid(pid, channel):
     # If productid is NA
@@ -469,6 +450,7 @@ def check_evidence_url(url):
     except:
         return "ERROR"
 
+log_stage("Starting evidence URL validation")
 unique_urls = df["evidence_url"].dropna().unique()
 url_status_map = {}
 
@@ -486,6 +468,7 @@ with ThreadPoolExecutor(max_workers=20) as executor:
         url_status_map[futures[f]] = f.result()
 
 df["evidence_url_validation"] = df["evidence_url"].map(url_status_map)
+log_stage("Evidence URL validation complete")
 
 print("Starting column checks...", flush=True)
 
@@ -610,9 +593,11 @@ df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
 cols = [c for c in df.columns if c != "failure_reason"] + ["failure_reason"]
 df = df[cols]
 print("Finished column checks", flush=True)
+log_stage("Column checks complete")
 
 
 # ================= FIND MISSING URLS (IN IP BUT NOT IN OP) =================
+log_stage("Finding missing URLs (IP vs OP)")
 
 # Build OP url set per scope
 op_scope_to_urls = {}
@@ -640,17 +625,21 @@ for scope, ip_urls in ip_scope_to_urls.items():
 missing_urls_df = pd.DataFrame(missing_rows)
 
 print(f"🔍 Total Missing URLs Found: {len(missing_urls_df)}")
+log_stage("Missing URL scan complete")
 
 # ================= OUTPUT =================
 # ================= OUTPUT =================
 print("Starting Excel write...", flush=True)
+log_stage("Writing CSV output")
 
 output_file = OUTPUT_FILE
 
 # -------- CSV (fast full dump) --------
 df.to_csv(output_file.with_suffix(".csv"), index=False)
+log_stage("CSV written")
 
 # -------- Excel (FAST writer) --------
+log_stage("Writing Excel output")
 with pd.ExcelWriter(
     output_file,
     engine="xlsxwriter",
@@ -678,5 +667,6 @@ with pd.ExcelWriter(
     )
 
 print("Finished Excel write", flush=True)
+log_stage("Excel written")
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
