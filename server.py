@@ -798,8 +798,17 @@ def download_ai_report_pdf(run_id: str):
 
 @app.get("/run/{run_id}/logs")
 def get_run_logs(run_id: str):
+    def _parse_time(msg: str):
+        if not msg:
+            return None
+        m = re.match(r"\[(\d{2}):(\d{2}):(\d{2})\]", msg)
+        if not m:
+            return None
+        h, mi, s = map(int, m.groups())
+        return h * 3600 + mi * 60 + s
+
     try:
-        return (
+        data = (
             supabase.table("run_logs")
             .select("*")
             .eq("run_id", run_id)
@@ -808,7 +817,7 @@ def get_run_logs(run_id: str):
             .data
         )
     except Exception:
-        return (
+        data = (
             supabase.table("run_logs")
             .select("*")
             .eq("run_id", run_id)
@@ -816,6 +825,17 @@ def get_run_logs(run_id: str):
             .execute()
             .data
         )
+
+    # Ensure deterministic UI ordering even when logs arrive out of order.
+    data_sorted = sorted(
+        data,
+        key=lambda r: (
+            _parse_time(r.get("message", "")) is None,
+            _parse_time(r.get("message", "")) or 0,
+            r.get("id", 0),
+        ),
+    )
+    return data_sorted
 
 @app.post("/input-run/{run_id}")
 def start_input_run(run_id: str, bg: BackgroundTasks):
