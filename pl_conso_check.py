@@ -2,6 +2,11 @@ import pandas as pd
 import numpy as np
 import re
 from pathlib import Path
+import hashlib
+import json
+import os
+import tempfile
+from supabase import create_client
 import sys
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -74,32 +79,106 @@ def read_file(fp):
         return pd.read_csv(fp, dtype=str, keep_default_na=False)
     return pd.read_excel(fp, dtype=str, keep_default_na=False)
 
+# ================= CACHE HELPERS =================
+def file_sha256(fp, chunk_size=1024 * 1024):
+    h = hashlib.sha256()
+    with open(fp, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _get_supabase():
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_KEY")
+    if not url or not key:
+        return None
+    return create_client(url, key)
+
+def _sb_download(client, bucket, storage_path, local_path):
+    data = client.storage.from_(bucket).download(storage_path)
+    if isinstance(data, dict) and data.get("statusCode"):
+        raise Exception(data)
+    if data is None or data == b"":
+        raise Exception({"statusCode": 404, "error": "not_found", "message": "Empty response"})
+    with open(local_path, "wb") as f:
+        f.write(data)
+
+def _sb_upload(client, bucket, storage_path, local_path):
+    with open(local_path, "rb") as f:
+        res = client.storage.from_(bucket).upload(storage_path, f)
+    if isinstance(res, dict) and res.get("statusCode") in (409, "409"):
+        return
+    if isinstance(res, dict) and res.get("statusCode"):
+        raise Exception(res)
+
+def read_with_cache(fp, label):
+    sha = file_sha256(fp)
+    cache_key = f"{label}/{fp.name}/{sha}"
+    meta_key = f"{cache_key}.json"
+    data_key = f"{cache_key}.pkl"
+
+    client = _get_supabase()
+    if client:
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                meta_local = Path(td) / "meta.json"
+                data_local = Path(td) / "data.pkl"
+                _sb_download(client, "pl-cache", meta_key, meta_local)
+                with open(meta_local, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                if meta.get("sha256") == sha and meta.get("filename") == fp.name:
+                    _sb_download(client, "pl-cache", data_key, data_local)
+                    print(f"✅ Cache hit for {label} (supabase): {fp.name}")
+                    return pd.read_pickle(data_local)
+        except Exception:
+            pass
+
+    print(f"⏳ Cache miss for {label}: {fp.name}. Reading file...")
+    df = read_file(fp)
+
+    if client:
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                meta_local = Path(td) / "meta.json"
+                data_local = Path(td) / "data.pkl"
+                df.to_pickle(data_local)
+                with open(meta_local, "w", encoding="utf-8") as f:
+                    json.dump({"filename": fp.name, "sha256": sha}, f)
+                _sb_upload(client, "pl-cache", data_key, data_local)
+                _sb_upload(client, "pl-cache", meta_key, meta_local)
+                print(f"✅ Cached {label} to supabase: {fp.name}")
+        except Exception as e:
+            print(f"⚠️ Failed to write supabase cache for {label}: {e}")
+    else:
+        cache_dir = Path(".pl_cache")
+        cache_dir.mkdir(exist_ok=True)
+        cache_base = f"{label}_{fp.stem}_{sha}"
+        cache_data = cache_dir / f"{cache_base}.pkl"
+        cache_meta = cache_dir / f"{cache_base}.json"
+        try:
+            df.to_pickle(cache_data)
+            with open(cache_meta, "w", encoding="utf-8") as f:
+                json.dump({"filename": fp.name, "sha256": sha}, f)
+            print(f"✅ Cached {label} locally: {fp.name}")
+        except Exception as e:
+            print(f"⚠️ Failed to write local cache for {label}: {e}")
+
+    return df
+
 # ================= LOAD FILES =================
 # ================= LOAD OUTPUT FIRST =================
 
 df = read_file(OP_FILE)
-ip_df = read_file(IP_FILE)
-master_df = read_file(MASTER_FILE)
+ip_df = read_with_cache(IP_FILE, "ip")
+master_df = read_with_cache(MASTER_FILE, "master")
 
 
 print(f"📄 OP File     : {OP_FILE}")
 print(f"📄 IP File     : {IP_FILE}")
 print(f"📄 Master File : {MASTER_FILE}")
 
-df = read_file(OP_FILE)
-ip_df = read_file(IP_FILE)
-master_df = read_file(MASTER_FILE)
-
 df.columns = [c.strip().lower() for c in df.columns]
 ip_df.columns = [c.strip().lower() for c in ip_df.columns]
-master_df.columns = [c.strip().lower() for c in master_df.columns]
-
-
-df = read_file(OP_FILE)
-master_df = read_file(MASTER_FILE)
-
-# Normalize column names
-df.columns = [c.strip().lower() for c in df.columns]
 master_df.columns = [c.strip().lower() for c in master_df.columns]
 
 if "scope" not in df.columns and "scope_name" in df.columns:
