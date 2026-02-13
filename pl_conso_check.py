@@ -2,19 +2,28 @@ import pandas as pd
 import numpy as np
 import re
 from pathlib import Path
-import hashlib
-import json
 import sys
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import difflib
+import time
 
 print("=== PL CONSO AUTOMATION STARTED ===")
 
 # simple stage logger
 def log_stage(msg):
     print(f"🔹 {msg}", flush=True)
+
+def log_timing(stage, start):
+    elapsed = time.perf_counter() - start
+    log_stage(f"{stage} done in {elapsed:.2f}s")
+
+def log_start(stage):
+    log_stage(f"{stage} started")
+
+def log_end(stage):
+    log_stage(f"{stage} completed")
 
 def closest_token_match(value, candidates):
     val_tokens = set(normalize_text(value).split())
@@ -84,17 +93,26 @@ def read_file(fp):
 # ================= LOAD FILES =================
 # ================= LOAD OUTPUT FIRST =================
 
-log_stage("Reading OP file")
+log_start("Read OP file")
+_t = time.perf_counter()
 df = read_file(OP_FILE)
+log_timing("Read OP file", _t)
 log_stage(f"OP rows loaded: {len(df)}")
+log_end("Read OP file")
 
-log_stage("Reading IP file")
+log_start("Read IP file")
+_t = time.perf_counter()
 ip_df = read_file(IP_FILE)
+log_timing("Read IP file", _t)
 log_stage(f"IP rows loaded: {len(ip_df)}")
+log_end("Read IP file")
 
-log_stage("Reading MASTER file")
+log_start("Read MASTER file")
+_t = time.perf_counter()
 master_df = read_file(MASTER_FILE)
+log_timing("Read MASTER file", _t)
 log_stage(f"MASTER rows loaded: {len(master_df)}")
+log_end("Read MASTER file")
 
 print(f"📄 OP File     : {OP_FILE}")
 print(f"📄 IP File     : {IP_FILE}")
@@ -450,9 +468,11 @@ def check_evidence_url(url):
     except:
         return "ERROR"
 
-log_stage("Starting evidence URL validation")
+log_start("Evidence URL validation")
+_t = time.perf_counter()
 unique_urls = df["evidence_url"].dropna().unique()
 url_status_map = {}
+log_stage(f"Evidence URLs to check: {len(unique_urls)}")
 
 with ThreadPoolExecutor(max_workers=20) as executor:
     futures = {executor.submit(check_evidence_url, url): url for url in unique_urls}
@@ -468,9 +488,12 @@ with ThreadPoolExecutor(max_workers=20) as executor:
         url_status_map[futures[f]] = f.result()
 
 df["evidence_url_validation"] = df["evidence_url"].map(url_status_map)
-log_stage("Evidence URL validation complete")
+log_timing("Evidence URL validation", _t)
+log_end("Evidence URL validation")
 
 print("Starting column checks...", flush=True)
+log_start("Column checks")
+_t = time.perf_counter()
 
 
 # ================= COLUMN INPUT VALIDATION =================
@@ -593,11 +616,13 @@ df["overall_status"] = np.where(df["failure_reason"] == "", "PASS", "FAIL")
 cols = [c for c in df.columns if c != "failure_reason"] + ["failure_reason"]
 df = df[cols]
 print("Finished column checks", flush=True)
-log_stage("Column checks complete")
+log_timing("Column checks", _t)
+log_end("Column checks")
 
 
 # ================= FIND MISSING URLS (IN IP BUT NOT IN OP) =================
-log_stage("Finding missing URLs (IP vs OP)")
+log_start("Missing URL scan")
+_t = time.perf_counter()
 
 # Build OP url set per scope
 op_scope_to_urls = {}
@@ -625,21 +650,25 @@ for scope, ip_urls in ip_scope_to_urls.items():
 missing_urls_df = pd.DataFrame(missing_rows)
 
 print(f"🔍 Total Missing URLs Found: {len(missing_urls_df)}")
-log_stage("Missing URL scan complete")
+log_timing("Missing URL scan", _t)
+log_end("Missing URL scan")
 
 # ================= OUTPUT =================
 # ================= OUTPUT =================
 print("Starting Excel write...", flush=True)
-log_stage("Writing CSV output")
+log_start("CSV write")
+_t = time.perf_counter()
 
 output_file = OUTPUT_FILE
 
 # -------- CSV (fast full dump) --------
 df.to_csv(output_file.with_suffix(".csv"), index=False)
-log_stage("CSV written")
+log_timing("CSV write", _t)
+log_end("CSV write")
 
 # -------- Excel (FAST writer) --------
-log_stage("Writing Excel output")
+log_start("Excel write")
+_t = time.perf_counter()
 with pd.ExcelWriter(
     output_file,
     engine="xlsxwriter",
@@ -667,6 +696,7 @@ with pd.ExcelWriter(
     )
 
 print("Finished Excel write", flush=True)
-log_stage("Excel written")
+log_timing("Excel write", _t)
+log_end("Excel write")
 print(f"✅ OUTPUT GENERATED: {output_file}")
 print("=== PL CONSO AUTOMATION COMPLETED ===")
