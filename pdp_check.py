@@ -501,9 +501,12 @@ country_key = col_series(df, "country").astype(str).str.strip()
 
 df["unique_key"] = rname_key + base_id
 
-# Hermes special case: rname + base_id + country
-mask_hermes = rname_key.str.upper().str.contains("HERMES_EUROPE", na=False)
-df.loc[mask_hermes, "unique_key"] = rname_key[mask_hermes] + base_id[mask_hermes] + country_key[mask_hermes]
+# MFK/Hermes special case: rname + base_id + country
+scope_key_series = col_series(df, "scope", "").astype(str).str.strip().apply(scope_key_from_value)
+mask_mfk_hermes = scope_key_series.isin({"mfk", "hermes"})
+df.loc[mask_mfk_hermes, "unique_key"] = (
+    rname_key[mask_mfk_hermes] + base_id[mask_mfk_hermes] + country_key[mask_mfk_hermes]
+)
 
 # ================= RNAME / COUNTRY CHECK =================
 scope_s = col_series(df, "scope").astype(str).str.strip()
@@ -567,57 +570,67 @@ if "date" in df.columns:
     df["date_check"] = df["date"].apply(lambda x: "PASS" if str(x).startswith(today) else "FAIL")
 
 # ================= PRICE / STATUS CHECK =================
-reg = col_series(df, "regularprice").astype(str).str.strip()
-final = col_series(df, "finalprice").astype(str).str.strip()
-markdown = col_series(df, "markdown_price").astype(str).str.strip()
+reg_raw = col_series(df, "regularprice").astype(str)
+final_raw = col_series(df, "finalprice").astype(str)
+markdown_raw = col_series(df, "markdown_price").astype(str)
+
+reg = reg_raw.str.strip()
+final = final_raw.str.strip()
+markdown = markdown_raw.str.strip()
 item_status = col_series(df, "item_status").astype(str).str.strip()
 
 reg_na = reg.apply(is_na_text) | reg.apply(is_not_available)
 final_na = final.apply(is_na_text) | final.apply(is_not_available)
+markdown_na = markdown.apply(is_na_text) | markdown.apply(is_not_available)
+reg_num = pd.to_numeric(reg.str.replace(",", "", regex=False).where(~reg_na, None), errors="coerce")
+final_num = pd.to_numeric(final.str.replace(",", "", regex=False).where(~final_na, None), errors="coerce")
+markdown_num = pd.to_numeric(markdown.str.replace(",", "", regex=False).where(~markdown_na, None), errors="coerce")
+price_equal = (reg == final) | (reg_num.notna() & final_num.notna() & (reg_num == final_num))
+final_markdown_equal = (final == markdown) | (
+    final_num.notna() & markdown_num.notna() & (final_num == markdown_num)
+)
 
-df["regular_final_match"] = np.where(reg == final, "TRUE", "FALSE")
+# Treat markdown rows as valid for regular/final mismatch.
+has_markdown = ~markdown.apply(is_na_text)
+df["regular_final_match"] = np.where(price_equal | has_markdown, "TRUE", "FALSE")
 df["price_rule_check"] = "PASS"
 
-# Case 1: regular == final and both are NA/Not available
-mask_na_eq = (reg == final) & reg_na & final_na
-df.loc[mask_na_eq & (item_status != final), "price_rule_check"] = "FAIL"
-df.loc[mask_na_eq & (markdown != final), "price_rule_check"] = "FAIL"
-
-# Case 2: regular == final and NOT NA
-mask_eq = (reg == final) & ~mask_na_eq
-df.loc[mask_eq & (item_status != "R"), "price_rule_check"] = "FAIL"
-df.loc[mask_eq & (~markdown.apply(is_na_text)), "price_rule_check"] = "FAIL"
-
-# Case 3: regular != final
-mask_neq = reg != final
-df.loc[mask_neq & (item_status != "M"), "price_rule_check"] = "FAIL"
-df.loc[mask_neq & (markdown.apply(is_na_text)), "price_rule_check"] = "FAIL"
-
-# Additional rule: if item_status is n/a, then regularprice, finalprice, markdown_price must all be n/a to pass
-mask_item_na = item_status.apply(is_na_text)
-mask_prices_all_na = reg.apply(is_na_text) & final.apply(is_na_text) & markdown.apply(is_na_text)
-df.loc[mask_item_na & ~mask_prices_all_na, "price_rule_check"] = "FAIL"
-
-# Additional rule: if item_status is M, markdown_price cannot be n/a
-mask_item_m = item_status.astype(str).str.strip() == "M"
-df.loc[mask_item_m & markdown.apply(is_na_text), "price_rule_check"] = "FAIL"
-
-# Additional rule: if item_status is R, markdown_price must be n/a
-mask_item_r = item_status.astype(str).str.strip() == "R"
-df.loc[mask_item_r & ~markdown.apply(is_na_text), "price_rule_check"] = "FAIL"
-
-# Additional rule: regularprice must be >= finalprice unless both are n/a or Not Available
-reg_num = pd.to_numeric(reg.where(~reg.apply(is_na_text) & ~reg.apply(is_not_available), None), errors="coerce")
-final_num = pd.to_numeric(final.where(~final.apply(is_na_text) & ~final.apply(is_not_available), None), errors="coerce")
-both_na = (reg.apply(is_na_text) | reg.apply(is_not_available)) & (final.apply(is_na_text) | final.apply(is_not_available))
-df.loc[~both_na & (reg_num < final_num), "price_rule_check"] = "FAIL"
-
-# Additional rule: if stock_status is In Stock, regular/final price cannot be n/a; Out of Stock can be n/a
 stock_status_s = col_series(df, "stock_status").astype(str).str.strip()
+item_status_norm = item_status.str.upper()
+mask_item_na = item_status.apply(is_na_text)
+mask_item_r = item_status_norm == "R"
+mask_item_m = item_status_norm == "M"
+
+# Rule 0: prices must be numeric-only format (digits with optional decimal),
+# with no spaces/commas/currency symbols/text.
+price_pattern = r"^\d+(?:\.\d+)?$"
+reg_bad_format = ~reg_na & ~reg_raw.str.match(price_pattern, na=False)
+final_bad_format = ~final_na & ~final_raw.str.match(price_pattern, na=False)
+markdown_bad_format = ~markdown_na & ~markdown_raw.str.match(price_pattern, na=False)
+df.loc[reg_bad_format | final_bad_format | markdown_bad_format, "price_rule_check"] = "FAIL"
+
+# Rule 1: if item_status is R, regularprice must equal finalprice.
+df.loc[mask_item_r & ~price_equal, "price_rule_check"] = "FAIL"
+
+# Rule 2: if item_status is M, finalprice must equal markdown_price and regularprice > finalprice.
+df.loc[mask_item_m & ~final_markdown_equal, "price_rule_check"] = "FAIL"
+df.loc[mask_item_m & (reg_num.isna() | final_num.isna() | markdown_num.isna()), "price_rule_check"] = "FAIL"
+df.loc[mask_item_m & reg_num.notna() & final_num.notna() & ~(reg_num > final_num), "price_rule_check"] = "FAIL"
+
+# Rule 3: item_status can be n/a only if stock_status is Out of Stock.
+df.loc[mask_item_na & (stock_status_s != "Out of Stock"), "price_rule_check"] = "FAIL"
+
+# Keep existing In Stock guard: regular/final price cannot be n/a.
 mask_instock = stock_status_s == "In Stock"
 mask_reg_na = reg.apply(is_na_text)
 mask_final_na = final.apply(is_na_text)
 df.loc[mask_instock & (mask_reg_na | mask_final_na), "price_rule_check"] = "FAIL"
+
+# Exclude price checks for PCD, MFK, and BNC (benefit) scopes.
+scope_for_price = col_series(df, "scope", "").astype(str).str.strip().apply(scope_key_from_value)
+skip_price_checks = scope_for_price.isin({"pcd", "mfk", "benefit"})
+df.loc[skip_price_checks, "price_rule_check"] = "PASS"
+df.loc[skip_price_checks, "regular_final_match"] = "TRUE"
 
 # ================= STOCK / AVAILABILITY CHECK =================
 stock_status = col_series(df, "stock_status").astype(str).str.strip()
@@ -739,7 +752,7 @@ if scope_key_for_na == "hermes":
 
 # ================= NOT AVAILABLE VALUE CHECK =================
 NOT_AVAILABLE_REQUIRED_BY_SCOPE = {
-    "hermes": ["top_category","category","sub_category","RName","country","SKUVARIENT","PName","Brand","Date","scope","base_id"],
+    "hermes": ["top_category","category","sub_category","RName","country","SKUVARIENT","Date","scope","base_id"],
     "coty": ["top_category","category","sub_category","RName","country","SKUVARIENT","Date","scope","base_id","url"],
     "mfk": ["top_category","category","sub_category","RName","country","SKUVARIENT","PName","Brand","Date","scope","base_id"],
     "pcd": ["top_category","category","sub_category","RName","country","SKUVARIENT","PName","Brand","Date","scope","base_id","url"],
@@ -826,15 +839,6 @@ df.loc[~mask_stock_na & (~rating_numeric_ok | ~rating_in_range) & ~mask_rating_r
 # If review > 0, rating must be present
 df.loc[(review_val > 0) & rating_is_na & ~mask_rating_review_na, "rating_check"] = "FAIL"
 
-# For MFK and Hermes: In Stock / Out of Stock must not have Not available in rating or review
-scope_key_rr = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
-if scope_key_rr in {"mfk", "hermes"}:
-    df["rating_review_stock_check"] = "PASS"
-    mask_stock_in_out = stock_status.isin(["In Stock", "Out of Stock"])
-    mask_rating_na = rating.apply(is_not_available)
-    mask_review_na = review.apply(is_not_available)
-    df.loc[mask_stock_in_out & (mask_rating_na | mask_review_na), "rating_review_stock_check"] = "FAIL"
-
 # For MFK and Hermes: Not available SKUs must have PName and SKUVARIENT from input (not Not available)
 scope_key_rr = scope_key_from_value(col_series(df, "scope", "").astype(str).str.strip().iloc[0] if len(df) else "")
 if scope_key_rr in {"mfk", "hermes"} and ip_input_map:
@@ -893,12 +897,9 @@ scope_key_rating = scope_key_from_value(col_series(df, "scope", "").astype(str).
 if scope_key_rating in {"mfk", "hermes"}:
     df["rating_normalization_check"] = "PASS"
     mask_rating_valid = rating_numeric_ok & rating_in_range
-    mask_rating_zero = mask_rating_valid & (rating_val == 0)
-    mask_rating_int = mask_rating_valid & (rating_val % 1 == 0) & ~mask_rating_zero
-    # Fail if rating is integer > 0 but not written as X.0, or if rating is invalid
-    normalized_int_ok = rating_norm.str.match(r"^[0-9]+\.0+$", na=False)
-    normalized_zero_ok = rating_norm.eq("0")
-    fail_norm = (mask_rating_int & ~normalized_int_ok) | (mask_rating_zero & ~normalized_zero_ok)
+    # Require exactly one decimal place (X.X) for all valid ratings.
+    one_decimal_ok = rating_norm.str.match(r"^[0-9]+\.[0-9]$", na=False)
+    fail_norm = mask_rating_valid & ~one_decimal_ok
     fail_norm |= (~mask_rating_valid & ~rating_is_na & ~mask_rating_review_na)
     df.loc[fail_norm, "rating_normalization_check"] = "FAIL"
 
@@ -1009,7 +1010,7 @@ FAILURE_MESSAGE_MAP = {
     "country_check": "Country is not valid for this scope (check master mapping).",
     "row_count_check": "Input row count does not match output row count for this scope + rname.",
     "date_check": "Date is not today (expected current date).",
-    "price_rule_check": "Price/Status rule failed: regular vs final price must match item_status and markdown_price.",
+    "price_rule_check": "Price/Status rule failed: item_status price rules or numeric price format is invalid (no spaces/text/symbols).",
     "availability_check": "Availability must match stock_status: In Stock -> Yes, Out of Stock -> No.",
     "stock_na_check": "For In Stock/Out of Stock, these columns cannot be 'Not available': regularprice/finalprice/markdown_price/item_status/rating/review/availability.",
     "rating_check": "Rating is invalid: must be numeric 0–5 (or allowed NA for Not available stock).",
@@ -1021,8 +1022,7 @@ FAILURE_MESSAGE_MAP = {
     "pid_check": "PID is missing or n/a.",
     "rname_check": "Retailer name (rname) is not valid for this scope or is missing/n/a.",
     "required_non_na_check": "One or more required fields contain n/a values.",
-    "rating_normalization_check": "Rating format rule failed (MFK/Hermes): integers must be X.0 and zero must be '0'.",
-    "rating_review_stock_check": "For In Stock/Out of Stock (MFK/Hermes), rating and review cannot be 'Not available'.",
+    "rating_normalization_check": "Rating format rule failed (MFK/Hermes): rating must have exactly one decimal place (X.X).",
     "na_sku_input_check": "Not available SKU must match input PName and SKUVARIENT (MFK/Hermes, key=rname+base_id+country).",
     "na_url_check": "For Not Available SKU (MFK/Hermes), url must be 'Not Available' (not n/a).",
     "upc_check": "UPC is in scientific notation (not allowed).",

@@ -12,6 +12,7 @@ import os
 import shutil
 import signal
 import hashlib
+import re
 
 from pdf_report_generator import generate_pdf_from_ai_report
 from ai_analyzer import analyze_output_with_gemini
@@ -119,6 +120,19 @@ def remove_from_buckets(storage_path, buckets):
             supabase.storage.from_(b).remove([storage_path])
         except:
             pass
+
+
+def build_output_filename(run_uuid: str, original_filename: str, ext: str = ".xlsx") -> str:
+    if not ext.startswith("."):
+        ext = f".{ext}"
+
+    original_name = os.path.basename((original_filename or "").strip())
+    original_stem, _ = os.path.splitext(original_name)
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", original_stem).strip("._")
+
+    if safe_stem:
+        return f"{run_uuid}_{safe_stem}{ext}"
+    return f"{run_uuid}{ext}"
 
 
 
@@ -262,7 +276,7 @@ def execute_run(run_id: str):
         # ---------------------------------------
         # 6. Upload result
         # ---------------------------------------
-        filename = f"{run['run_uuid']}.xlsx"
+        filename = build_output_filename(run["run_uuid"], run.get("op_filename", ""), ".xlsx")
 
         upload_to_storage("run-outputs", filename, output_local)
 
@@ -403,7 +417,7 @@ def execute_input_run(run_id: str):
         # -----------------------------
         # 5. upload result
         # -----------------------------
-        output_filename = f"{run['run_uuid']}.xlsx"
+        output_filename = build_output_filename(run["run_uuid"], run.get("op_filename", ""), ".xlsx")
 
         upload_to_storage(
             "input-creation-output",
@@ -679,7 +693,7 @@ def execute_pdp_run(run_id: str):
         # -----------------------------
         # 6. upload result
         # -----------------------------
-        output_filename = f"{run['run_uuid']}.xlsx"
+        output_filename = build_output_filename(run["run_uuid"], run.get("op_filename", ""), ".xlsx")
 
         upload_to_storage(
             "pdp-run-output",
