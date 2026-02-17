@@ -195,25 +195,8 @@ def get_current_user_id(token: str = Depends(get_bearer_token)) -> str:
 
 def is_admin(user_id: str) -> bool:
     try:
-        res = supabase.rpc("has_role", {"_user_id": user_id, "_role": "admin"}).execute()
-        data = getattr(res, "data", None)
-
-        if isinstance(data, bool):
-            return data
-        if isinstance(data, dict):
-            # Handle payload shapes like {"has_role": true}
-            if "has_role" in data and isinstance(data["has_role"], bool):
-                return data["has_role"]
-            return False
-        if isinstance(data, list) and data:
-            first = data[0]
-            if isinstance(first, bool):
-                return first
-            if isinstance(first, dict) and "has_role" in first and isinstance(first["has_role"], bool):
-                return first["has_role"]
-            return False
-
-        # Safe fallback using service-role query path.
+        # Use a deterministic table lookup with service-role privileges.
+        # This avoids ambiguous truthiness from RPC payload shapes.
         rows = (
             supabase.table("user_roles")
             .select("role")
@@ -241,7 +224,9 @@ def require_run_access(run_id: str, user_id: str) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
 
     run = run_rows[0]
-    if run.get("user_id") != user_id and not is_admin(user_id):
+    run_owner_id = str(run.get("user_id") or "")
+    caller_id = str(user_id or "")
+    if run_owner_id != caller_id and not is_admin(caller_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return run
 
