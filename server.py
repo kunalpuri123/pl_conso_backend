@@ -1,10 +1,12 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from supabase import create_client
 from dotenv import load_dotenv
 from datetime import datetime
+from collections import defaultdict, deque
+from threading import Lock
 
 import subprocess
 import tempfile
@@ -37,7 +39,13 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # APP
 # =========================================================
 
-app = FastAPI()
+ENABLE_API_DOCS = os.getenv("ENABLE_API_DOCS", "false").strip().lower() == "true"
+
+app = FastAPI(
+    docs_url="/docs" if ENABLE_API_DOCS else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if ENABLE_API_DOCS else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +62,14 @@ app.add_middleware(
 
 BASE_WORKDIR = "./work"
 os.makedirs(BASE_WORKDIR, exist_ok=True)
+
+RATE_LIMITS = {
+    "trigger": (20, 60),       # 20 requests per 60s
+    "logs": (60, 60),          # 60 requests per 60s
+    "mutating_run": (10, 60),  # 10 requests per 60s
+}
+_rate_buckets = defaultdict(deque)
+_rate_lock = Lock()
 
 
 # =========================================================
@@ -133,6 +149,90 @@ def build_output_filename(run_uuid: str, original_filename: str, ext: str = ".xl
     if safe_stem:
         return f"{run_uuid}_{safe_stem}{ext}"
     return f"{run_uuid}{ext}"
+
+
+def get_bearer_token(authorization: str | None = Header(default=None, alias="Authorization")) -> str:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+        )
+    parts = authorization.strip().split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header",
+        )
+    return parts[1].strip()
+
+
+def get_current_user_id(token: str = Depends(get_bearer_token)) -> str:
+    try:
+        auth_resp = supabase.auth.get_user(token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    user = getattr(auth_resp, "user", None)
+    if user is None and isinstance(auth_resp, dict):
+        user = auth_resp.get("user")
+
+    user_id = None
+    if isinstance(user, dict):
+        user_id = user.get("id")
+    else:
+        user_id = getattr(user, "id", None)
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unable to resolve user from token",
+        )
+    return user_id
+
+
+def is_admin(user_id: str) -> bool:
+    try:
+        res = supabase.rpc("has_role", {"_user_id": user_id, "_role": "admin"}).execute()
+        return bool(res.data)
+    except Exception:
+        return False
+
+
+def require_run_access(run_id: str, user_id: str) -> dict:
+    run_rows = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not run_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    run = run_rows[0]
+    if run.get("user_id") != user_id and not is_admin(user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return run
+
+
+def enforce_rate_limit(bucket: str, key: str):
+    limit, window_sec = RATE_LIMITS[bucket]
+    now = datetime.utcnow().timestamp()
+
+    with _rate_lock:
+        q = _rate_buckets[(bucket, key)]
+        while q and (now - q[0]) > window_sec:
+            q.popleft()
+        if len(q) >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded",
+            )
+        q.append(now)
 
 
 
@@ -749,22 +849,17 @@ def execute_pdp_run(run_id: str):
 # =========================================================
 
 @app.post("/run/{run_id}")
-def start_run(run_id: str, bg: BackgroundTasks):
+def start_run(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    require_run_access(run_id, user_id)
     bg.add_task(execute_run, run_id)
     return {"status": "started"}
 
 
 @app.post("/run/{run_id}/rerun")
-def rerun(run_id: str, bg: BackgroundTasks):
-
-    old = (
-        supabase.table("runs")
-        .select("*")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
+def rerun(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    old = require_run_access(run_id, user_id)
 
     new = (
         supabase.table("runs")
@@ -789,7 +884,8 @@ def rerun(run_id: str, bg: BackgroundTasks):
 
 
 @app.get("/run/{run_id}/ai-report")
-def get_ai_report(run_id: str):
+def get_ai_report(run_id: str, user_id: str = Depends(get_current_user_id)):
+    require_run_access(run_id, user_id)
     return (
         supabase.table("run_ai_reports")
         .select("*")
@@ -801,7 +897,8 @@ def get_ai_report(run_id: str):
 
 
 @app.get("/run/{run_id}/ai-report-pdf")
-def download_ai_report_pdf(run_id: str):
+def download_ai_report_pdf(run_id: str, user_id: str = Depends(get_current_user_id)):
+    require_run_access(run_id, user_id)
 
     row = (
         supabase.table("run_ai_reports")
@@ -819,10 +916,17 @@ def download_ai_report_pdf(run_id: str):
     return FileResponse(tmp, media_type="application/pdf")
 
 @app.get("/run/{run_id}/logs")
-def get_run_logs(run_id: str, since_id: int | None = None):
+def get_run_logs(
+    run_id: str,
+    request: Request,
+    since_id: int | None = None,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     Return logs in insertion order. Optional since_id enables real-time polling.
     """
+    enforce_rate_limit("logs", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    require_run_access(run_id, user_id)
     q = (
         supabase.table("run_logs")
         .select("*")
@@ -837,22 +941,16 @@ def get_run_logs(run_id: str, since_id: int | None = None):
     )
 
 @app.post("/input-run/{run_id}")
-def start_input_run(run_id: str, bg: BackgroundTasks):
+def start_input_run(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    require_run_access(run_id, user_id)
     bg.add_task(execute_input_run, run_id)
     return {"status": "started"}
 
 @app.post("/input-run/{run_id}/rerun")
-def rerun_input(run_id: str, bg: BackgroundTasks):
-
-    # get old run
-    old = (
-        supabase.table("runs")
-        .select("*")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
+def rerun_input(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    old = require_run_access(run_id, user_id)
 
     # create new run row
     new = (
@@ -879,21 +977,16 @@ def rerun_input(run_id: str, bg: BackgroundTasks):
     return {"status": "input_rerun_started"}
 
 @app.post("/pdp-run/{run_id}")
-def start_pdp_run(run_id: str, bg: BackgroundTasks):
+def start_pdp_run(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    require_run_access(run_id, user_id)
     bg.add_task(execute_pdp_run, run_id)
     return {"status": "started"}
 
 @app.post("/pdp-run/{run_id}/rerun")
-def rerun_pdp(run_id: str, bg: BackgroundTasks):
-
-    old = (
-        supabase.table("runs")
-        .select("*")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
+def rerun_pdp(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    old = require_run_access(run_id, user_id)
 
     new = (
         supabase.table("runs")
@@ -922,19 +1015,9 @@ def rerun_pdp(run_id: str, bg: BackgroundTasks):
 
 
 @app.post("/runs/{run_id}/cancel")
-def cancel_run(run_id: str):
-
-    run = (
-        supabase.table("runs")
-        .select("*")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
-
-    if not run:
-        return {"error": "Run not found"}
+def cancel_run(run_id: str, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("mutating_run", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    run = require_run_access(run_id, user_id)
 
     # -------------------------
     # 1. HARD KILL PROCESS
@@ -983,19 +1066,9 @@ def cancel_run(run_id: str):
     return {"status": "cancelled"}
 
 @app.post("/runs/{run_id}/delete")
-def delete_run(run_id: str):
-
-    run = (
-        supabase.table("runs")
-        .select("*")
-        .eq("id", run_id)
-        .single()
-        .execute()
-        .data
-    )
-
-    if not run:
-        return {"error": "Run not found"}
+def delete_run(run_id: str, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("mutating_run", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    run = require_run_access(run_id, user_id)
 
     files = (
         supabase.table("run_files")
