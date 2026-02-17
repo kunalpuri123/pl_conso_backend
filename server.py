@@ -231,6 +231,24 @@ def require_run_access(run_id: str, user_id: str) -> dict:
     return run
 
 
+def require_run_owner(run_id: str, user_id: str) -> dict:
+    run_rows = (
+        supabase.table("runs")
+        .select("*")
+        .eq("id", run_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not run_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    run = run_rows[0]
+    if str(run.get("user_id") or "") != str(user_id or ""):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return run
+
+
 def enforce_rate_limit(bucket: str, key: str):
     limit, window_sec = RATE_LIMITS[bucket]
     now = datetime.utcnow().timestamp()
@@ -897,7 +915,7 @@ def rerun(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Dep
 
 @app.get("/run/{run_id}/ai-report")
 def get_ai_report(run_id: str, user_id: str = Depends(get_current_user_id)):
-    require_run_access(run_id, user_id)
+    require_run_owner(run_id, user_id)
     return (
         supabase.table("run_ai_reports")
         .select("*")
@@ -910,7 +928,7 @@ def get_ai_report(run_id: str, user_id: str = Depends(get_current_user_id)):
 
 @app.get("/run/{run_id}/ai-report-pdf")
 def download_ai_report_pdf(run_id: str, user_id: str = Depends(get_current_user_id)):
-    require_run_access(run_id, user_id)
+    require_run_owner(run_id, user_id)
 
     row = (
         supabase.table("run_ai_reports")
@@ -938,7 +956,7 @@ def get_run_logs(
     Return logs in insertion order. Optional since_id enables real-time polling.
     """
     enforce_rate_limit("logs", f"{user_id}:{request.client.host if request.client else 'unknown'}")
-    require_run_access(run_id, user_id)
+    require_run_owner(run_id, user_id)
     q = (
         supabase.table("run_logs")
         .select("*")
