@@ -8,9 +8,13 @@ import time
 from datetime import datetime
 
 import pandas as pd
-import win32com.client as win32
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
+
+try:
+    import win32com.client as win32  # Windows-only Excel COM automation
+except Exception:
+    win32 = None
 
 REFERENCE_EXCEL = r"file_name_format.xlsx"
 AE_CHECK_FOLDER = r"AE_Checks"
@@ -149,6 +153,12 @@ def run_conso_check_once(file_path):
 
 
 def create_values_file(ae_local_path):
+    if win32 is None:
+        # On Linux/macOS servers, Excel COM is unavailable.
+        # Return original workbook path and rely on cached formula values if present.
+        print("⚠️ win32com not available; using workbook cached values for validation.")
+        return ae_local_path
+
     excel = win32.DispatchEx("Excel.Application")
     excel.Visible = False
     excel.DisplayAlerts = False
