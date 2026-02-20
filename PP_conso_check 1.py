@@ -296,31 +296,17 @@ def validate_checks_using_values(ae_path, values_path):
         failed_rows = set()
         max_row_to_check = min(ws_final.max_row, ws_checks_formula.max_row, ws_checks_data.max_row)
 
-        def row_failed(r):
+        for r in range(2, max_row_to_check + 1):
             for c in range(1, ws_checks_formula.max_column + 1):
                 if c in (6, 7):
                     continue
                 val = ws_checks_data.cell(r, c).value
-                raw = ws_checks_formula.cell(r, c).value
-                if val in (True, "TRUE", "true", 1):
-                    continue
                 if is_fail_value(val):
-                    return True
-                # In non-Excel environments, a formula without cached value
-                # means the check could not be evaluated; treat as failed.
-                if isinstance(raw, str) and raw.startswith("=") and (val is None or str(val).strip() == ""):
-                    return True
-            return False
-
-        for r in range(2, max_row_to_check + 1):
-            fail_this_row = row_failed(r)
-            for c in range(1, ws_checks_formula.max_column + 1):
-                if c in (6, 7):
-                    continue
-                ws_checks_formula.cell(r, c).fill = highlight if fail_this_row else clear_fill
-            if fail_this_row:
-                failed_count += 1
-                failed_rows.add(r)
+                    ws_checks_formula.cell(r, c).fill = highlight
+                    failed_count += 1
+                    failed_rows.add(r)
+                else:
+                    ws_checks_formula.cell(r, c).fill = clear_fill
 
         wb_formula.save(ae_path)
         wb_formula.close()
@@ -353,24 +339,17 @@ def validate_checks_using_values(ae_path, values_path):
     failed_rows = set()
     max_row_to_check = min(ws_final.max_row, ws_checks.max_row, ws_values.max_row)
 
-    def row_failed(r):
+    for r in range(2, max_row_to_check + 1):
         for c in range(1, ws_checks.max_column + 1):
             if c in (6, 7):
                 continue
             val = ws_values.cell(r, c).value
             if is_fail_value(val):
-                return True
-        return False
-
-    for r in range(2, max_row_to_check + 1):
-        fail_this_row = row_failed(r)
-        for c in range(1, ws_checks.max_column + 1):
-            if c in (6, 7):
-                continue
-            ws_checks.cell(r, c).fill = highlight if fail_this_row else clear_fill
-        if fail_this_row:
-            failed_count += 1
-            failed_rows.add(r)
+                ws_checks.cell(r, c).fill = highlight
+                failed_count += 1
+                failed_rows.add(r)
+            else:
+                ws_checks.cell(r, c).fill = clear_fill
 
     wb_ae.save(ae_path)
     wb_ae.close()
@@ -559,6 +538,26 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
 
     # Extend Checks formulas for all rows present in Final.
     # Only adjust row references pointing to Final!<col>2; keep Details!$A$2 etc untouched.
+    def shift_checks_formula(base_formula, row_num):
+        if not (isinstance(base_formula, str) and base_formula.startswith("=")):
+            return base_formula
+
+        # 1) Shift Final sheet references: Final!B2 -> Final!B{row_num}
+        formula = re.sub(
+            r"(Final!\$?[A-Z]+)\$?2\b",
+            lambda m: f"{m.group(1)}{row_num}",
+            base_formula,
+        )
+
+        # 2) Shift same-sheet row-relative refs: F2 / $F2 -> F{row_num} / $F{row_num}
+        #    Excludes cross-sheet refs like Details!$A$2 due to negative lookbehind for '!'.
+        formula = re.sub(
+            r"(?<![A-Za-z0-9_!])(\$?[A-Z]{1,3})\$?2\b",
+            lambda m: f"{m.group(1)}{row_num}",
+            formula,
+        )
+        return formula
+
     base_formulas = {
         c: ws_checks.cell(2, c).value
         for c in range(1, ws_checks.max_column + 1)
@@ -567,15 +566,7 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
         for c in range(1, ws_checks.max_column + 1):
             base = base_formulas.get(c)
             if isinstance(base, str) and base.startswith("="):
-                ws_checks.cell(
-                    r,
-                    c,
-                    re.sub(
-                        r"(Final!\$?[A-Z]+)\$?2",
-                        lambda m: f"{m.group(1)}{r}",
-                        base,
-                    ),
-                )
+                ws_checks.cell(r, c, shift_checks_formula(base, r))
             elif r > ws_checks.max_row:
                 ws_checks.cell(r, c, base if base is not None else "")
 
