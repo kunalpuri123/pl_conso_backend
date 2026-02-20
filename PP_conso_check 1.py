@@ -274,7 +274,7 @@ def validate_checks_using_values(ae_path, values_path):
             return True
         if isinstance(val, str):
             s = val.strip().upper()
-            if s in {"#N/A", "#NA", "#VALUE!", "#REF!", "#NAME?", "#DIV/0!"}:
+            if s in {"FALSE", "0", "#N/A", "#NA", "#VALUE!", "#REF!", "#NAME?", "#DIV/0!"}:
                 return True
         return False
 
@@ -300,8 +300,9 @@ def validate_checks_using_values(ae_path, values_path):
             for c in range(1, ws_checks_formula.max_column + 1):
                 if c in (6, 7):
                     continue
-                val = ws_checks_data.cell(r, c).value
-                if is_fail_value(val):
+                val_cached = ws_checks_data.cell(r, c).value
+                val_visible = ws_checks_formula.cell(r, c).value
+                if is_fail_value(val_cached) or is_fail_value(val_visible):
                     ws_checks_formula.cell(r, c).fill = highlight
                     failed_count += 1
                     failed_rows.add(r)
@@ -345,8 +346,9 @@ def validate_checks_using_values(ae_path, values_path):
         for c in range(1, ws_checks.max_column + 1):
             if c in (6, 7):
                 continue
-            val = ws_values.cell(r, c).value
-            if is_fail_value(val):
+            val_cached = ws_values.cell(r, c).value
+            val_visible = ws_checks.cell(r, c).value
+            if is_fail_value(val_cached) or is_fail_value(val_visible):
                 ws_checks.cell(r, c).fill = highlight
                 failed_count += 1
                 failed_rows.add(r)
