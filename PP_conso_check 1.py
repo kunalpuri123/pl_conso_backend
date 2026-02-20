@@ -248,24 +248,56 @@ def clear_brand_division_zeros(ae_path, values_path):
 
 
 def validate_checks_using_values(ae_path, values_path):
-    # Cloud/Linux fallback: without Excel COM, formula results are often unavailable.
-    # In this case, avoid false FAIL/highlight by clearing prior highlights and skipping strict validation.
+    # Cloud/Linux fallback: no Excel COM.
+    # Use cached formula results if available; if missing/false, keep highlight as failed.
     if win32 is None and os.path.abspath(values_path) == os.path.abspath(ae_path):
-        wb_ae = load_workbook(ae_path)
-        checks = next(s for s in wb_ae.sheetnames if s.lower() == "checks")
-        final = next(s for s in wb_ae.sheetnames if s.lower() == "final")
-        ws_checks = wb_ae[checks]
-        ws_final = wb_ae[final]
+        wb_formula = load_workbook(ae_path, data_only=False)
+        wb_data = load_workbook(ae_path, data_only=True)
+
+        checks = next(s for s in wb_formula.sheetnames if s.lower() == "checks")
+        final = next(s for s in wb_formula.sheetnames if s.lower() == "final")
+        ws_checks_formula = wb_formula[checks]
+        ws_checks_data = wb_data[checks]
+        ws_final = wb_formula[final]
+
+        highlight = PatternFill("solid", fgColor="FFFF00")
         clear_fill = PatternFill(fill_type=None)
-        for r in range(2, ws_final.max_row + 1):
-            for c in range(1, ws_checks.max_column + 1):
+        failed_count = 0
+        failed_rows = set()
+        max_row_to_check = min(ws_final.max_row, ws_checks_formula.max_row, ws_checks_data.max_row)
+
+        def row_failed(r):
+            for c in range(1, ws_checks_formula.max_column + 1):
                 if c in (6, 7):
                     continue
-                ws_checks.cell(r, c).fill = clear_fill
-        wb_ae.save(ae_path)
-        wb_ae.close()
-        print("⚠️ Excel recalculation unavailable; skipping strict AE formula validation.")
-        return True, 0, []
+                val = ws_checks_data.cell(r, c).value
+                raw = ws_checks_formula.cell(r, c).value
+                is_true = val in (True, "TRUE", "true", 1)
+                if is_true:
+                    continue
+                if isinstance(raw, str) and raw.startswith("="):
+                    return True
+                if val in (False, "FALSE", "false", 0):
+                    return True
+                return True
+            return False
+
+        for r in range(2, max_row_to_check + 1):
+            fail_this_row = row_failed(r)
+            for c in range(1, ws_checks_formula.max_column + 1):
+                if c in (6, 7):
+                    continue
+                ws_checks_formula.cell(r, c).fill = highlight if fail_this_row else clear_fill
+            if fail_this_row:
+                failed_count += 1
+                failed_rows.add(r)
+
+        wb_formula.save(ae_path)
+        wb_formula.close()
+        wb_data.close()
+        if failed_count > 0:
+            print("⚠️ Excel recalculation unavailable; highlighted checks use cached/missing values.")
+        return failed_count == 0, failed_count, sorted(failed_rows)
 
     for _ in range(5):
         try:
@@ -289,18 +321,26 @@ def validate_checks_using_values(ae_path, values_path):
     clear_fill = PatternFill(fill_type=None)
     failed_count = 0
     failed_rows = set()
+    max_row_to_check = min(ws_final.max_row, ws_checks.max_row, ws_values.max_row)
 
-    for r in range(2, ws_final.max_row + 1):
+    def row_failed(r):
         for c in range(1, ws_checks.max_column + 1):
             if c in (6, 7):
                 continue
             val = ws_values.cell(r, c).value
-            if val in (True, "TRUE", "true", 1):
-                ws_checks.cell(r, c).fill = clear_fill
-            else:
-                ws_checks.cell(r, c).fill = highlight
-                failed_count += 1
-                failed_rows.add(r)
+            if val not in (True, "TRUE", "true", 1):
+                return True
+        return False
+
+    for r in range(2, max_row_to_check + 1):
+        fail_this_row = row_failed(r)
+        for c in range(1, ws_checks.max_column + 1):
+            if c in (6, 7):
+                continue
+            ws_checks.cell(r, c).fill = highlight if fail_this_row else clear_fill
+        if fail_this_row:
+            failed_count += 1
+            failed_rows.add(r)
 
     wb_ae.save(ae_path)
     wb_ae.close()
@@ -367,9 +407,11 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
     wb = load_workbook(review_file)
     final = next(s for s in wb.sheetnames if s.lower() == "final")
     vlookup = next(s for s in wb.sheetnames if s.lower() == "vlookup")
+    checks = next(s for s in wb.sheetnames if s.lower() == "checks")
 
     ws_final = wb[final]
     ws_vlookup = wb[vlookup]
+    ws_checks = wb[checks]
 
     ws_final.delete_rows(1, ws_final.max_row)
 
@@ -391,6 +433,28 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
                 if isinstance(base, str) and base.startswith("=")
                 else (base or ""),
             )
+
+    # Extend Checks formulas for all rows present in Final.
+    # Only adjust row references pointing to Final!<col>2; keep Details!$A$2 etc untouched.
+    base_formulas = {
+        c: ws_checks.cell(2, c).value
+        for c in range(1, ws_checks.max_column + 1)
+    }
+    for r in range(2, ws_final.max_row + 1):
+        for c in range(1, ws_checks.max_column + 1):
+            base = base_formulas.get(c)
+            if isinstance(base, str) and base.startswith("="):
+                ws_checks.cell(
+                    r,
+                    c,
+                    re.sub(
+                        r"(Final!\$?[A-Z]+)\$?2",
+                        lambda m: f"{m.group(1)}{r}",
+                        base,
+                    ),
+                )
+            elif r > ws_checks.max_row:
+                ws_checks.cell(r, c, base if base is not None else "")
 
     wb.save(review_file)
     wb.close()
