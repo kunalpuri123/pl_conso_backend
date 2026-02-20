@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime
 
@@ -211,8 +212,12 @@ def run_conso_check_once(file_path):
 def create_values_file(ae_local_path):
     if win32 is None:
         # On Linux/macOS servers, Excel COM is unavailable.
-        # Return original workbook path and rely on cached formula values if present.
-        print("⚠️ win32com not available; using workbook cached values for validation.")
+        # Try LibreOffice headless recalc; fallback to cached values from original file.
+        values_path = ae_local_path.replace(".xlsx", "_VALUES.xlsx")
+        if recalculate_with_libreoffice(ae_local_path, values_path):
+            print("✅ Recalculated workbook via LibreOffice headless mode.")
+            return values_path
+        print("⚠️ win32com/libreoffice recalculation unavailable; using workbook cached values for validation.")
         return ae_local_path
 
     excel = win32.DispatchEx("Excel.Application")
@@ -296,7 +301,14 @@ def validate_checks_using_values(ae_path, values_path):
                 if c in (6, 7):
                     continue
                 val = ws_checks_data.cell(r, c).value
+                raw = ws_checks_formula.cell(r, c).value
+                if val in (True, "TRUE", "true", 1):
+                    continue
                 if is_fail_value(val):
+                    return True
+                # In non-Excel environments, a formula without cached value
+                # means the check could not be evaluated; treat as failed.
+                if isinstance(raw, str) and raw.startswith("=") and (val is None or str(val).strip() == ""):
                     return True
             return False
 
@@ -370,6 +382,93 @@ def write_checklist_file(checklist_path, summary_rows, rowwise_df):
     with pd.ExcelWriter(checklist_path, engine="openpyxl") as writer:
         pd.DataFrame(summary_rows).to_excel(writer, sheet_name="Summary", index=False)
         rowwise_df.to_excel(writer, sheet_name="Row_Wise_Checks", index=False)
+
+
+def recalculate_with_libreoffice(src_xlsx, dst_xlsx):
+    """
+    Best-effort recalculation on Linux containers using LibreOffice.
+    Returns True on success, else False.
+    """
+    tmp_dir = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="pp_lo_calc_")
+        cmd = [
+            "soffice",
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nolockcheck",
+            "--convert-to",
+            "xlsx",
+            "--outdir",
+            tmp_dir,
+            src_xlsx,
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if proc.returncode != 0:
+            return False
+
+        converted = os.path.join(tmp_dir, os.path.splitext(os.path.basename(src_xlsx))[0] + ".xlsx")
+        if not os.path.exists(converted):
+            return False
+        shutil.copyfile(converted, dst_xlsx)
+        return True
+    except Exception:
+        return False
+    finally:
+        if tmp_dir:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+
+def checks_cached_available(template_path):
+    """
+    Check whether Checks formula cells have cached data-only values.
+    """
+    wb_formula = load_workbook(template_path, data_only=False)
+    wb_data = load_workbook(template_path, data_only=True)
+    try:
+        checks = next((s for s in wb_formula.sheetnames if s.lower() == "checks"), None)
+        if not checks:
+            return True
+        wsf = wb_formula[checks]
+        wsd = wb_data[checks]
+        max_row = min(wsf.max_row, wsd.max_row)
+        for r in range(2, max_row + 1):
+            for c in range(1, wsf.max_column + 1):
+                if c in (6, 7):
+                    continue
+                raw = wsf.cell(r, c).value
+                if isinstance(raw, str) and raw.startswith("="):
+                    val = wsd.cell(r, c).value
+                    if val is None or str(val).strip() == "":
+                        return False
+        return True
+    finally:
+        wb_formula.close()
+        wb_data.close()
+
+
+def ensure_template_cache_ready(ae_template_file, output_dir):
+    """
+    If template cached formula results are missing, try recalc and return cached file path.
+    Returns: (usable_template_path, cache_file_to_upload_or_empty)
+    """
+    if checks_cached_available(ae_template_file):
+        return ae_template_file, ""
+
+    cached_template = os.path.join(
+        output_dir,
+        os.path.splitext(os.path.basename(ae_template_file))[0] + "_CACHE_READY.xlsx",
+    )
+    if recalculate_with_libreoffice(ae_template_file, cached_template) and checks_cached_available(cached_template):
+        print(f"AE_TEMPLATE_CACHE_FILE={cached_template}")
+        return cached_template, cached_template
+
+    print("⚠️ Template cached values missing and recalculation could not be completed.")
+    return ae_template_file, ""
 
 
 def append_meta_and_checklist(review_file, meta_rows, checklist_rows):
@@ -524,6 +623,10 @@ def prepare_mode(args):
             ae_template_file = os.path.join(args.ae_check_folder, ae_flag)
         if not os.path.exists(ae_template_file):
             raise FileNotFoundError(f"AE template not found: {ae_template_file}")
+
+        ae_template_file, cache_file = ensure_template_cache_ready(ae_template_file, args.output_dir)
+        if cache_file:
+            print(f"AE_TEMPLATE_CACHE_FILE={cache_file}")
 
         write_conso_to_ae_template(conso_df, ae_template_file, review_file)
         values_file = create_values_file(review_file)

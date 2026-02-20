@@ -935,7 +935,14 @@ def execute_pp_run(run_id: str):
             download_from_storage("pp-review-input", ip_name, ip_local)
         download_from_storage("pp-reference", master_name, master_local)
         if ae_name and ae_template_local:
-            download_from_storage("pp-ae-checks", ae_name, ae_template_local)
+            # Try cached template first
+            cache_key = f"ae_templates/{ae_name}"
+            try:
+                download_from_storage("pp-cache", cache_key, ae_template_local)
+                log(run_id, "INFO", f"AE template cache hit: {cache_key}")
+            except Exception:
+                download_from_storage("pp-ae-checks", ae_name, ae_template_local)
+                log(run_id, "INFO", f"AE template cache miss: {cache_key}")
 
         log(run_id, "INFO", "All files downloaded")
 
@@ -966,15 +973,20 @@ def execute_pp_run(run_id: str):
             "FINAL_TSV": "",
             "REVIEW_FILE": "",
             "CHECKLIST_FILE": "",
+            "AE_TEMPLATE_CACHE_FILE": "",
             "OVERALL_STATUS": "",
         }
+        file_keys = {"FINAL_XLSX", "FINAL_TSV", "REVIEW_FILE", "CHECKLIST_FILE"}
         for line in process.stdout:
             text = line.rstrip()
             log(run_id, "INFO", text)
             for key in parsed_paths.keys():
                 prefix = f"{key}="
                 if text.startswith(prefix):
-                    parsed_paths[key] = text[len(prefix):].strip()
+                    value = text[len(prefix):].strip()
+                    if key in file_keys and value:
+                        value = os.path.abspath(value)
+                    parsed_paths[key] = value
 
         process.wait()
 
@@ -992,6 +1004,11 @@ def execute_pp_run(run_id: str):
         final_tsv_local = parsed_paths.get("FINAL_TSV") or ""
         review_local = parsed_paths.get("REVIEW_FILE") or ""
         checklist_local = parsed_paths.get("CHECKLIST_FILE") or ""
+        ae_template_cache_local = parsed_paths.get("AE_TEMPLATE_CACHE_FILE") or ""
+
+        # Backward-safe fallback: review workbook is usually output_local in fresh mode.
+        if not review_local and os.path.exists(output_local):
+            review_local = os.path.abspath(output_local)
 
         bundle_candidates = []
         if final_xlsx_local and os.path.exists(final_xlsx_local):
@@ -1035,6 +1052,7 @@ def execute_pp_run(run_id: str):
                 for fp in unique_candidates:
                     if os.path.exists(fp):
                         zf.write(fp, arcname=os.path.basename(fp))
+            log(run_id, "INFO", f"ZIP_CONTENTS={', '.join([os.path.basename(p) for p in unique_candidates])}")
 
             upload_to_storage("pp-run-output", zip_name, zip_local)
             supabase.table("run_files").insert({
@@ -1043,6 +1061,15 @@ def execute_pp_run(run_id: str):
                 "file_type": "FINAL_OUTPUT",
                 "storage_path": zip_name
             }).execute()
+
+        # Upload refreshed AE template cache, if script produced one.
+        if ae_name and ae_template_cache_local and os.path.exists(ae_template_cache_local):
+            cache_key = f"ae_templates/{ae_name}"
+            try:
+                upload_to_storage("pp-cache", cache_key, ae_template_cache_local)
+                log(run_id, "INFO", f"AE template cache uploaded: {cache_key}")
+            except Exception as e:
+                log(run_id, "ERROR", f"Failed to upload AE template cache: {str(e)}")
 
         # -----------------------------
         # 6. mark completed
