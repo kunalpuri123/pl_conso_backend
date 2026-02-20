@@ -902,16 +902,16 @@ def execute_pp_run(run_id: str):
         # -----------------------------
         # 2. local paths
         # -----------------------------
+        op_name = run.get("op_filename")
+        ip_name = run.get("ip_filename")
+        master_name = run.get("master_filename")
+        ae_name = run.get("ae_filename")
+
         op_local = os.path.join(run_dir, os.path.basename(op_name)) if op_name else ""
         ip_local = os.path.join(run_dir, os.path.basename(ip_name)) if ip_name else ""
         master_local = os.path.join(run_dir, os.path.basename(master_name))
         ae_template_local = os.path.join(run_dir, os.path.basename(ae_name)) if ae_name else ""
         output_local = os.path.join(run_dir, "pp_output.xlsx")
-
-        op_name = run.get("op_filename")
-        ip_name = run.get("ip_filename")
-        master_name = run.get("master_filename")
-        ae_name = run.get("ae_filename")
 
         log(run_id, "INFO", f"OP file: {op_name}")
         log(run_id, "INFO", f"IP file: {ip_name}")
