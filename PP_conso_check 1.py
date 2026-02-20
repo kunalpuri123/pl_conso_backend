@@ -76,6 +76,7 @@ def resolve_ae_naming(conso_filename, reference_excel):
 def run_conso_check_once(file_path):
     df = load_tsv(file_path)
     checklist = []
+    rowwise = pd.DataFrame(index=df.index)
 
     def top_values(series, limit=10):
         vals = [str(x).strip() for x in series.dropna().tolist() if str(x).strip()]
@@ -99,6 +100,15 @@ def run_conso_check_once(file_path):
             }
         )
         df = df[df["isRemoved"] != "Yes"]
+        rowwise = rowwise.loc[df.index]
+
+    # row-wise base identity columns
+    for col in ["banner_name", "date", "country", "channel", "brand_name", "retailer_name"]:
+        if col in df.columns:
+            rowwise[col] = df[col]
+    rowwise["isSaved_must_be_yes"] = "PASS"
+    rowwise["mandatory_columns_no_na"] = "PASS"
+    rowwise["promo_message_consistency"] = "PASS"
 
     if "isSaved" in df.columns:
         invalid = df[df["isSaved"] != "Yes"]
@@ -115,6 +125,7 @@ def run_conso_check_once(file_path):
                 ),
             }
         )
+        rowwise.loc[df["isSaved"] != "Yes", "isSaved_must_be_yes"] = "FAIL"
 
     mandatory_cols = ["date", "country", "channel", "brand_name", "retailer_name"]
     mandatory_fail_msgs = []
@@ -128,6 +139,7 @@ def run_conso_check_once(file_path):
                 mandatory_fail_msgs.append(
                     f"{col} has 'NA' in {len(bad)} rows; sample banners: {', '.join(banners)}"
                 )
+                rowwise.loc[df[col].astype(str).str.upper() == "NA", "mandatory_columns_no_na"] = "FAIL"
 
     checklist.append(
         {
@@ -143,9 +155,12 @@ def run_conso_check_once(file_path):
 
     promo_cols = {"is_it_promotional", "promo_message"}
     if promo_cols.issubset(df.columns):
-        invalid = df[
+        promo_mask = (
             ((df["is_it_promotional"] == "1") & (df["promo_message"] == "NA"))
             | ((df["is_it_promotional"] == "0") & (df["promo_message"] != "NA"))
+        )
+        invalid = df[
+            promo_mask
         ]
         failed_banners = top_values(invalid["banner_name"]) if "banner_name" in invalid.columns else []
         checklist.append(
@@ -164,6 +179,7 @@ def run_conso_check_once(file_path):
                 ),
             }
         )
+        rowwise.loc[promo_mask, "promo_message_consistency"] = "FAIL"
 
     for col in ["banner_alt_text", "promo_message", "exposed_sku"]:
         if col in df.columns:
@@ -173,7 +189,7 @@ def run_conso_check_once(file_path):
         df.loc[df["brand_name"] == "No Brand", "exposed_sku"] = "NA"
 
     has_fail = any(row["status"] == "FAIL" for row in checklist)
-    return df, checklist, has_fail
+    return df, checklist, has_fail, rowwise.reset_index(drop=True)
 
 
 def create_values_file(ae_local_path):
@@ -249,7 +265,7 @@ def validate_checks_using_values(ae_path, values_path):
         wb_ae.save(ae_path)
         wb_ae.close()
         print("⚠️ Excel recalculation unavailable; skipping strict AE formula validation.")
-        return True, 0
+        return True, 0, []
 
     for _ in range(5):
         try:
@@ -272,6 +288,7 @@ def validate_checks_using_values(ae_path, values_path):
     highlight = PatternFill("solid", fgColor="FFFF00")
     clear_fill = PatternFill(fill_type=None)
     failed_count = 0
+    failed_rows = set()
 
     for r in range(2, ws_final.max_row + 1):
         for c in range(1, ws_checks.max_column + 1):
@@ -283,11 +300,18 @@ def validate_checks_using_values(ae_path, values_path):
             else:
                 ws_checks.cell(r, c).fill = highlight
                 failed_count += 1
+                failed_rows.add(r)
 
     wb_ae.save(ae_path)
     wb_ae.close()
     wb_val.close()
-    return failed_count == 0, failed_count
+    return failed_count == 0, failed_count, sorted(failed_rows)
+
+
+def write_checklist_file(checklist_path, summary_rows, rowwise_df):
+    with pd.ExcelWriter(checklist_path, engine="openpyxl") as writer:
+        pd.DataFrame(summary_rows).to_excel(writer, sheet_name="Summary", index=False)
+        rowwise_df.to_excel(writer, sheet_name="Row_Wise_Checks", index=False)
 
 
 def append_meta_and_checklist(review_file, meta_rows, checklist_rows):
@@ -383,14 +407,16 @@ def prepare_mode(args):
     forced_template_path = getattr(args, "ae_template_file", "") or ""
     forced_template_path = forced_template_path.strip()
 
-    conso_df, checklist_rows, conso_has_fail = run_conso_check_once(args.conso_file)
+    conso_df, checklist_rows, conso_has_fail, rowwise_df = run_conso_check_once(args.conso_file)
 
     os.makedirs(args.output_dir, exist_ok=True)
     review_file = args.review_file or os.path.join(
         args.output_dir, f"{os.path.splitext(conso_filename)[0]}_review.xlsx"
     )
+    checklist_file = os.path.join(args.output_dir, f"{os.path.splitext(conso_filename)[0]}_CHECKLIST.xlsx")
 
     ae_failed_cells = 0
+    ae_failed_rows = []
     if ae_flag.lower() == "no":
         checklist_rows.append(
             {
@@ -412,7 +438,7 @@ def prepare_mode(args):
         write_conso_to_ae_template(conso_df, ae_template_file, review_file)
         values_file = create_values_file(review_file)
         clear_brand_division_zeros(review_file, values_file)
-        ae_pass, ae_failed_cells = validate_checks_using_values(review_file, values_file)
+        ae_pass, ae_failed_cells, ae_failed_rows = validate_checks_using_values(review_file, values_file)
         try:
             if os.path.abspath(values_file) != os.path.abspath(review_file):
                 os.remove(values_file)
@@ -434,6 +460,22 @@ def prepare_mode(args):
                 ),
             }
         )
+
+    # Add AE check row-wise status for easier verification
+    rowwise_df["ae_formula_checks"] = "PASS" if ae_flag.lower() == "no" else "PASS"
+    if ae_failed_rows:
+        for excel_row in ae_failed_rows:
+            idx = excel_row - 2
+            if 0 <= idx < len(rowwise_df):
+                rowwise_df.loc[idx, "ae_formula_checks"] = "FAIL"
+
+    rowwise_df["overall_status"] = "PASS"
+    for c in ["isSaved_must_be_yes", "mandatory_columns_no_na", "promo_message_consistency", "ae_formula_checks"]:
+        if c in rowwise_df.columns:
+            rowwise_df.loc[rowwise_df[c] == "FAIL", "overall_status"] = "FAIL"
+
+    write_checklist_file(checklist_file, checklist_rows, rowwise_df)
+    print(f"CHECKLIST_FILE={checklist_file}")
 
     overall_fail = conso_has_fail or ae_failed_cells > 0
     if ae_flag.lower() != "no":
@@ -474,6 +516,7 @@ def prepare_mode(args):
             return {
                 "status": "FAIL",
                 "review_file": review_file,
+                "checklist_file": checklist_file,
                 "final_tsv": "",
                 "final_xlsx": "",
             }
@@ -482,6 +525,7 @@ def prepare_mode(args):
             return {
                 "status": "FAIL",
                 "review_file": review_file,
+                "checklist_file": checklist_file,
                 "final_tsv": "",
                 "final_xlsx": "",
             }
@@ -511,6 +555,7 @@ def prepare_mode(args):
     return {
         "status": "PASS",
         "review_file": review_file if ae_flag.lower() != "no" else "",
+        "checklist_file": checklist_file,
         "final_tsv": out_tsv,
         "final_xlsx": out_xlsx,
     }
@@ -555,7 +600,7 @@ def finalize_mode(args):
     if ae_flag.lower() != "no":
         values_file = create_values_file(args.review_file)
         clear_brand_division_zeros(args.review_file, values_file)
-        ae_pass, ae_failed_cells = validate_checks_using_values(args.review_file, values_file)
+        ae_pass, ae_failed_cells, _ = validate_checks_using_values(args.review_file, values_file)
         if not ae_pass:
             try:
                 if os.path.abspath(values_file) != os.path.abspath(args.review_file):
@@ -588,6 +633,7 @@ def finalize_mode(args):
     return {
         "status": "PASS",
         "review_file": args.review_file,
+        "checklist_file": "",
         "final_tsv": out_tsv,
         "final_xlsx": out_xlsx,
     }

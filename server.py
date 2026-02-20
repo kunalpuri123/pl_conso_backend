@@ -15,6 +15,7 @@ import shutil
 import signal
 import hashlib
 import re
+import zipfile
 
 from pdf_report_generator import generate_pdf_from_ai_report
 from ai_analyzer import analyze_output_with_gemini
@@ -960,8 +961,20 @@ def execute_pp_run(run_id: str):
             "process_pid": process.pid
         }).eq("id", run_id).execute()
 
+        parsed_paths = {
+            "FINAL_XLSX": "",
+            "FINAL_TSV": "",
+            "REVIEW_FILE": "",
+            "CHECKLIST_FILE": "",
+            "OVERALL_STATUS": "",
+        }
         for line in process.stdout:
-            log(run_id, "INFO", line.rstrip())
+            text = line.rstrip()
+            log(run_id, "INFO", text)
+            for key in parsed_paths.keys():
+                prefix = f"{key}="
+                if text.startswith(prefix):
+                    parsed_paths[key] = text[len(prefix):].strip()
 
         process.wait()
 
@@ -973,23 +986,100 @@ def execute_pp_run(run_id: str):
             raise Exception("Script failed")
 
         # -----------------------------
-        # 5. upload result
+        # 5. upload result(s)
         # -----------------------------
-        base_name = run.get("op_filename") or run.get("ip_filename") or "pp_output.xlsx"
-        output_filename = build_output_filename(run["run_uuid"], base_name, ".xlsx")
+        final_xlsx_local = parsed_paths.get("FINAL_XLSX") or ""
+        final_tsv_local = parsed_paths.get("FINAL_TSV") or ""
+        review_local = parsed_paths.get("REVIEW_FILE") or ""
+        checklist_local = parsed_paths.get("CHECKLIST_FILE") or ""
 
-        upload_to_storage(
-            "pp-run-output",
-            output_filename,
-            output_local
-        )
+        uploaded_any = False
+        bundle_candidates = []
 
-        supabase.table("run_files").insert({
-            "run_id": run_id,
-            "filename": output_filename,
-            "file_type": "FINAL_OUTPUT",
-            "storage_path": output_filename
-        }).execute()
+        if final_xlsx_local and os.path.exists(final_xlsx_local):
+            final_xlsx_name = os.path.basename(final_xlsx_local)
+            upload_to_storage("pp-run-output", final_xlsx_name, final_xlsx_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": final_xlsx_name,
+                "file_type": "FINAL_OUTPUT",
+                "storage_path": final_xlsx_name
+            }).execute()
+            uploaded_any = True
+            bundle_candidates.append(final_xlsx_local)
+
+        if final_tsv_local and os.path.exists(final_tsv_local):
+            final_tsv_name = os.path.basename(final_tsv_local)
+            upload_to_storage("pp-run-output", final_tsv_name, final_tsv_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": final_tsv_name,
+                "file_type": "FINAL_TSV",
+                "storage_path": final_tsv_name
+            }).execute()
+            uploaded_any = True
+            bundle_candidates.append(final_tsv_local)
+
+        if review_local and os.path.exists(review_local):
+            review_name = os.path.basename(review_local)
+            upload_to_storage("pp-run-output", review_name, review_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": review_name,
+                "file_type": "CHECKLIST_REVIEW",
+                "storage_path": review_name
+            }).execute()
+            uploaded_any = True
+            bundle_candidates.append(review_local)
+
+        if checklist_local and os.path.exists(checklist_local):
+            checklist_name = os.path.basename(checklist_local)
+            upload_to_storage("pp-run-output", checklist_name, checklist_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": checklist_name,
+                "file_type": "CHECKLIST",
+                "storage_path": checklist_name
+            }).execute()
+            uploaded_any = True
+            bundle_candidates.append(checklist_local)
+
+        # Fallback for unexpected script output format.
+        if not uploaded_any and os.path.exists(output_local):
+            fallback_name = build_output_filename(run["run_uuid"], run.get("op_filename") or run.get("ip_filename") or "pp_output.xlsx", ".xlsx")
+            upload_to_storage("pp-run-output", fallback_name, output_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": fallback_name,
+                "file_type": "FINAL_OUTPUT",
+                "storage_path": fallback_name
+            }).execute()
+            bundle_candidates.append(output_local)
+
+        # Upload one zip containing all generated artifacts.
+        unique_candidates = []
+        seen = set()
+        for p in bundle_candidates:
+            ap = os.path.abspath(p)
+            if ap in seen:
+                continue
+            seen.add(ap)
+            unique_candidates.append(p)
+        if unique_candidates:
+            zip_name = f"{run['run_uuid']}_all_outputs.zip"
+            zip_local = os.path.join(run_dir, zip_name)
+            with zipfile.ZipFile(zip_local, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for fp in unique_candidates:
+                    if os.path.exists(fp):
+                        zf.write(fp, arcname=os.path.basename(fp))
+
+            upload_to_storage("pp-run-output", zip_name, zip_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": zip_name,
+                "file_type": "OUTPUT_BUNDLE_ZIP",
+                "storage_path": zip_name
+            }).execute()
 
         # -----------------------------
         # 6. mark completed
