@@ -934,15 +934,18 @@ def execute_pp_run(run_id: str):
         if ip_name and ip_local:
             download_from_storage("pp-review-input", ip_name, ip_local)
         download_from_storage("pp-reference", master_name, master_local)
+        ae_cache_key = ""
+        ae_cache_miss = False
         if ae_name and ae_template_local:
             # Try cached template first
-            cache_key = f"ae_templates/{ae_name}"
+            ae_cache_key = f"ae_templates/{ae_name}"
             try:
-                download_from_storage("pp-cache", cache_key, ae_template_local)
-                log(run_id, "INFO", f"AE template cache hit: {cache_key}")
+                download_from_storage("pp-cache", ae_cache_key, ae_template_local)
+                log(run_id, "INFO", f"AE template cache hit: {ae_cache_key}")
             except Exception:
                 download_from_storage("pp-ae-checks", ae_name, ae_template_local)
-                log(run_id, "INFO", f"AE template cache miss: {cache_key}")
+                ae_cache_miss = True
+                log(run_id, "INFO", f"AE template cache miss: {ae_cache_key}")
 
         log(run_id, "INFO", "All files downloaded")
 
@@ -1064,12 +1067,18 @@ def execute_pp_run(run_id: str):
 
         # Upload refreshed AE template cache, if script produced one.
         if ae_name and ae_template_cache_local and os.path.exists(ae_template_cache_local):
-            cache_key = f"ae_templates/{ae_name}"
             try:
-                upload_to_storage("pp-cache", cache_key, ae_template_cache_local)
-                log(run_id, "INFO", f"AE template cache uploaded: {cache_key}")
+                upload_to_storage("pp-cache", ae_cache_key, ae_template_cache_local)
+                log(run_id, "INFO", f"AE template cache uploaded: {ae_cache_key}")
             except Exception as e:
                 log(run_id, "ERROR", f"Failed to upload AE template cache: {str(e)}")
+        elif ae_name and ae_cache_miss and ae_template_local and os.path.exists(ae_template_local):
+            # Even without recalculation support, seed baseline template into cache on first miss.
+            try:
+                upload_to_storage("pp-cache", ae_cache_key, ae_template_local)
+                log(run_id, "INFO", f"AE template baseline cache uploaded: {ae_cache_key}")
+            except Exception as e:
+                log(run_id, "ERROR", f"Failed to upload AE template baseline cache: {str(e)}")
 
         # -----------------------------
         # 6. mark completed
