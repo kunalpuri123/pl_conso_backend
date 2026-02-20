@@ -902,10 +902,10 @@ def execute_pp_run(run_id: str):
         # -----------------------------
         # 2. local paths
         # -----------------------------
-        op_local = os.path.join(run_dir, "pp_source.tsv")
-        ip_local = os.path.join(run_dir, "pp_review.xlsx")
-        master_local = os.path.join(run_dir, "pp_reference.xlsx")
-        ae_template_local = os.path.join(run_dir, "pp_ae_template.xlsx")
+        op_local = os.path.join(run_dir, os.path.basename(op_name)) if op_name else ""
+        ip_local = os.path.join(run_dir, os.path.basename(ip_name)) if ip_name else ""
+        master_local = os.path.join(run_dir, os.path.basename(master_name))
+        ae_template_local = os.path.join(run_dir, os.path.basename(ae_name)) if ae_name else ""
         output_local = os.path.join(run_dir, "pp_output.xlsx")
 
         op_name = run.get("op_filename")
@@ -928,12 +928,12 @@ def execute_pp_run(run_id: str):
         # -----------------------------
         log(run_id, "INFO", "Downloading input files")
 
-        if op_name:
+        if op_name and op_local:
             download_from_storage("pp-input", op_name, op_local)
-        if ip_name:
+        if ip_name and ip_local:
             download_from_storage("pp-review-input", ip_name, ip_local)
         download_from_storage("pp-reference", master_name, master_local)
-        if ae_name:
+        if ae_name and ae_template_local:
             download_from_storage("pp-ae-checks", ae_name, ae_template_local)
 
         log(run_id, "INFO", "All files downloaded")
