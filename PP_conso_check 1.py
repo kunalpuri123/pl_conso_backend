@@ -36,6 +36,20 @@ def clean_text(col):
     )
 
 
+def coerce_numeric_flags(df, cols=("is_it_promotional", "is_it_single", "is_it_single_brand")):
+    for col in cols:
+        if col not in df.columns:
+            continue
+        s = df[col].astype(str).str.strip()
+        s = s.replace({"": pd.NA, "NA": pd.NA, "N/A": pd.NA, "na": pd.NA, "n/a": pd.NA})
+        num = pd.to_numeric(s, errors="coerce")
+        if num.notna().any():
+            if (num.dropna() % 1 == 0).all():
+                df[col] = num.astype("Int64")
+            else:
+                df[col] = num
+
+
 def normalize_name(name):
     if not name:
         return ""
@@ -185,6 +199,8 @@ def run_conso_check_once(file_path):
         if col in df.columns:
             df[col] = clean_text(df[col].astype(str))
 
+    coerce_numeric_flags(df)
+
     if {"brand_name", "exposed_sku"}.issubset(df.columns):
         df.loc[df["brand_name"] == "No Brand", "exposed_sku"] = "NA"
 
@@ -248,6 +264,15 @@ def clear_brand_division_zeros(ae_path, values_path):
 
 
 def validate_checks_using_values(ae_path, values_path):
+    def is_fail_value(val):
+        if val in (False, "FALSE", "false", 0, "0"):
+            return True
+        if isinstance(val, str):
+            s = val.strip().upper()
+            if s in {"#N/A", "#NA", "#VALUE!", "#REF!", "#NAME?", "#DIV/0!"}:
+                return True
+        return False
+
     # Cloud/Linux fallback: no Excel COM.
     # Use cached formula results if available; if missing/false, keep highlight as failed.
     if win32 is None and os.path.abspath(values_path) == os.path.abspath(ae_path):
@@ -271,15 +296,8 @@ def validate_checks_using_values(ae_path, values_path):
                 if c in (6, 7):
                     continue
                 val = ws_checks_data.cell(r, c).value
-                raw = ws_checks_formula.cell(r, c).value
-                is_true = val in (True, "TRUE", "true", 1)
-                if is_true:
-                    continue
-                if isinstance(raw, str) and raw.startswith("="):
+                if is_fail_value(val):
                     return True
-                if val in (False, "FALSE", "false", 0):
-                    return True
-                return True
             return False
 
         for r in range(2, max_row_to_check + 1):
@@ -328,7 +346,7 @@ def validate_checks_using_values(ae_path, values_path):
             if c in (6, 7):
                 continue
             val = ws_values.cell(r, c).value
-            if val not in (True, "TRUE", "true", 1):
+            if is_fail_value(val):
                 return True
         return False
 
@@ -400,6 +418,10 @@ def read_meta(review_file):
 
 
 def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
+    # Hard-enforce numeric flag conversion before writing to template/checks.
+    conso_df = conso_df.copy()
+    coerce_numeric_flags(conso_df)
+
     shutil.copyfile(ae_template_file, review_file)
     if os.name == "nt":
         subprocess.run(["attrib", "-R", review_file], shell=True)
@@ -472,6 +494,8 @@ def prepare_mode(args):
     forced_template_path = forced_template_path.strip()
 
     conso_df, checklist_rows, conso_has_fail, rowwise_df = run_conso_check_once(args.conso_file)
+    # Ensure conversions are finalized before any AE template checks.
+    coerce_numeric_flags(conso_df)
 
     os.makedirs(args.output_dir, exist_ok=True)
     review_file = args.review_file or os.path.join(
@@ -608,6 +632,7 @@ def prepare_mode(args):
 
     if {"brand_name", "exposed_sku"}.issubset(final_df.columns):
         final_df.loc[final_df["brand_name"] == "No Brand", "exposed_sku"] = "NA"
+    coerce_numeric_flags(final_df)
 
     out_tsv, out_xlsx = write_final_outputs(final_df, final_name_template, args.output_dir)
     print(f"FINAL_TSV={out_tsv}")
@@ -688,6 +713,7 @@ def finalize_mode(args):
 
     if {"brand_name", "exposed_sku"}.issubset(final_df.columns):
         final_df.loc[final_df["brand_name"] == "No Brand", "exposed_sku"] = "NA"
+    coerce_numeric_flags(final_df)
 
     out_tsv, out_xlsx = write_final_outputs(final_df, template, args.output_dir)
 

@@ -993,70 +993,24 @@ def execute_pp_run(run_id: str):
         review_local = parsed_paths.get("REVIEW_FILE") or ""
         checklist_local = parsed_paths.get("CHECKLIST_FILE") or ""
 
-        uploaded_any = False
         bundle_candidates = []
-
         if final_xlsx_local and os.path.exists(final_xlsx_local):
-            final_xlsx_name = os.path.basename(final_xlsx_local)
-            upload_to_storage("pp-run-output", final_xlsx_name, final_xlsx_local)
-            supabase.table("run_files").insert({
-                "run_id": run_id,
-                "filename": final_xlsx_name,
-                "file_type": "FINAL_OUTPUT",
-                "storage_path": final_xlsx_name
-            }).execute()
-            uploaded_any = True
             bundle_candidates.append(final_xlsx_local)
 
         if final_tsv_local and os.path.exists(final_tsv_local):
-            final_tsv_name = os.path.basename(final_tsv_local)
-            upload_to_storage("pp-run-output", final_tsv_name, final_tsv_local)
-            supabase.table("run_files").insert({
-                "run_id": run_id,
-                "filename": final_tsv_name,
-                "file_type": "FINAL_TSV",
-                "storage_path": final_tsv_name
-            }).execute()
-            uploaded_any = True
             bundle_candidates.append(final_tsv_local)
 
         if review_local and os.path.exists(review_local):
-            review_name = os.path.basename(review_local)
-            upload_to_storage("pp-run-output", review_name, review_local)
-            supabase.table("run_files").insert({
-                "run_id": run_id,
-                "filename": review_name,
-                "file_type": "CHECKLIST_REVIEW",
-                "storage_path": review_name
-            }).execute()
-            uploaded_any = True
             bundle_candidates.append(review_local)
 
         if checklist_local and os.path.exists(checklist_local):
-            checklist_name = os.path.basename(checklist_local)
-            upload_to_storage("pp-run-output", checklist_name, checklist_local)
-            supabase.table("run_files").insert({
-                "run_id": run_id,
-                "filename": checklist_name,
-                "file_type": "CHECKLIST",
-                "storage_path": checklist_name
-            }).execute()
-            uploaded_any = True
             bundle_candidates.append(checklist_local)
 
         # Fallback for unexpected script output format.
-        if not uploaded_any and os.path.exists(output_local):
-            fallback_name = build_output_filename(run["run_uuid"], run.get("op_filename") or run.get("ip_filename") or "pp_output.xlsx", ".xlsx")
-            upload_to_storage("pp-run-output", fallback_name, output_local)
-            supabase.table("run_files").insert({
-                "run_id": run_id,
-                "filename": fallback_name,
-                "file_type": "FINAL_OUTPUT",
-                "storage_path": fallback_name
-            }).execute()
+        if not bundle_candidates and os.path.exists(output_local):
             bundle_candidates.append(output_local)
 
-        # Upload one zip containing all generated artifacts.
+        # Upload one consolidated zip containing all generated artifacts.
         unique_candidates = []
         seen = set()
         for p in bundle_candidates:
@@ -1066,7 +1020,16 @@ def execute_pp_run(run_id: str):
             seen.add(ap)
             unique_candidates.append(p)
         if unique_candidates:
-            zip_name = f"{run['run_uuid']}_all_outputs.zip"
+            # Naming: <run_uuid>_<original/final_name>_All_All_All.zip
+            base_name_source = (
+                os.path.basename(final_xlsx_local) if final_xlsx_local and os.path.exists(final_xlsx_local)
+                else os.path.basename(run.get("op_filename") or run.get("ip_filename") or "pp_output.xlsx")
+            )
+            base_stem, _ = os.path.splitext(base_name_source)
+            safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", base_stem).strip("._")
+            if not re.search(r"all[_\s-]*all[_\s-]*all$", safe_stem, flags=re.IGNORECASE):
+                safe_stem = f"{safe_stem}_All_All_All"
+            zip_name = f"{run['run_uuid']}_{safe_stem}.zip"
             zip_local = os.path.join(run_dir, zip_name)
             with zipfile.ZipFile(zip_local, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for fp in unique_candidates:
@@ -1077,7 +1040,7 @@ def execute_pp_run(run_id: str):
             supabase.table("run_files").insert({
                 "run_id": run_id,
                 "filename": zip_name,
-                "file_type": "OUTPUT_BUNDLE_ZIP",
+                "file_type": "FINAL_OUTPUT",
                 "storage_path": zip_name
             }).execute()
 
