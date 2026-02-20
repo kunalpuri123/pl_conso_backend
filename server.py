@@ -874,6 +874,159 @@ def execute_pdp_run(run_id: str):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def execute_pp_run(run_id: str):
+
+    run_dir = os.path.join(BASE_WORKDIR, f"pp_run_{run_id}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    try:
+        # -----------------------------
+        # 1. mark running
+        # -----------------------------
+        supabase.table("runs").update({
+            "status": "running",
+            "start_time": datetime.utcnow().isoformat()
+        }).eq("id", run_id).execute()
+
+        run = (
+            supabase.table("runs")
+            .select("*")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
+
+        log(run_id, "INFO", "AE PP check started")
+
+        # -----------------------------
+        # 2. local paths
+        # -----------------------------
+        op_local = os.path.join(run_dir, "pp_source.tsv")
+        ip_local = os.path.join(run_dir, "pp_review.xlsx")
+        master_local = os.path.join(run_dir, "pp_reference.xlsx")
+        ae_template_local = os.path.join(run_dir, "pp_ae_template.xlsx")
+        output_local = os.path.join(run_dir, "pp_output.xlsx")
+
+        op_name = run.get("op_filename")
+        ip_name = run.get("ip_filename")
+        master_name = run.get("master_filename")
+        ae_name = run.get("ae_filename")
+
+        log(run_id, "INFO", f"OP file: {op_name}")
+        log(run_id, "INFO", f"IP file: {ip_name}")
+        log(run_id, "INFO", f"MASTER file: {master_name}")
+        log(run_id, "INFO", f"AE template file: {ae_name}")
+
+        if not master_name:
+            raise Exception("Missing reference/master file in DB")
+        if not op_name and not ip_name:
+            raise Exception("Missing both source and review files in DB")
+
+        # -----------------------------
+        # 3. download files
+        # -----------------------------
+        log(run_id, "INFO", "Downloading input files")
+
+        if op_name:
+            download_from_storage("pp-input", op_name, op_local)
+        if ip_name:
+            download_from_storage("pp-review-input", ip_name, ip_local)
+        download_from_storage("pp-reference", master_name, master_local)
+        if ae_name:
+            download_from_storage("pp-ae-checks", ae_name, ae_template_local)
+
+        log(run_id, "INFO", "All files downloaded")
+
+        # -----------------------------
+        # 4. run python script
+        # -----------------------------
+        process = subprocess.Popen(
+            [
+                "python",
+                "-u",
+                "PP_conso_check 1.py",
+                op_local if op_name else "",
+                ip_local if ip_name else "",
+                master_local,
+                output_local,
+                ae_template_local if ae_name else ""
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
+        supabase.table("runs").update({
+            "process_pid": process.pid
+        }).eq("id", run_id).execute()
+
+        for line in process.stdout:
+            log(run_id, "INFO", line.rstrip())
+
+        process.wait()
+
+        if process.returncode == -9:
+            log(run_id, "INFO", "Run cancelled by user")
+            return
+
+        if process.returncode != 0:
+            raise Exception("Script failed")
+
+        # -----------------------------
+        # 5. upload result
+        # -----------------------------
+        base_name = run.get("op_filename") or run.get("ip_filename") or "pp_output.xlsx"
+        output_filename = build_output_filename(run["run_uuid"], base_name, ".xlsx")
+
+        upload_to_storage(
+            "pp-run-output",
+            output_filename,
+            output_local
+        )
+
+        supabase.table("run_files").insert({
+            "run_id": run_id,
+            "filename": output_filename,
+            "file_type": "FINAL_OUTPUT",
+            "storage_path": output_filename
+        }).execute()
+
+        # -----------------------------
+        # 6. mark completed
+        # -----------------------------
+        supabase.table("runs").update({
+            "status": "completed",
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
+        }).eq("id", run_id).execute()
+
+        log(run_id, "INFO", "AE PP check completed")
+
+    except Exception as e:
+        log(run_id, "ERROR", str(e))
+
+        current = (
+            supabase.table("runs")
+            .select("status")
+            .eq("id", run_id)
+            .single()
+            .execute()
+            .data
+        )
+
+        if current and current["status"] == "cancelled":
+            return
+
+        supabase.table("runs").update({
+            "status": "failed",
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
+        }).eq("id", run_id).execute()
+
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 # =========================================================
 # API
 # =========================================================
@@ -1027,6 +1180,7 @@ def rerun_pdp(run_id: str, bg: BackgroundTasks, request: Request, user_id: str =
             "scope": old["scope"],
             "op_filename": old["op_filename"],
             "ip_filename": old["ip_filename"],
+            "ae_filename": old.get("ae_filename"),
             "master_filename": old["master_filename"],
             "status": "pending",
             "automation_slug": old["automation_slug"]
@@ -1038,6 +1192,41 @@ def rerun_pdp(run_id: str, bg: BackgroundTasks, request: Request, user_id: str =
     bg.add_task(execute_pdp_run, new["id"])
 
     return {"status": "pdp_rerun_started"}
+
+
+@app.post("/pp-run/{run_id}")
+def start_pp_run(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    require_run_access(run_id, user_id)
+    bg.add_task(execute_pp_run, run_id)
+    return {"status": "started"}
+
+
+@app.post("/pp-run/{run_id}/rerun")
+def rerun_pp(run_id: str, bg: BackgroundTasks, request: Request, user_id: str = Depends(get_current_user_id)):
+    enforce_rate_limit("trigger", f"{user_id}:{request.client.host if request.client else 'unknown'}")
+    old = require_run_access(run_id, user_id)
+
+    new = (
+        supabase.table("runs")
+        .insert({
+            "user_id": old["user_id"],
+            "project_id": old["project_id"],
+            "site_id": old["site_id"],
+            "scope": old["scope"],
+            "op_filename": old["op_filename"],
+            "ip_filename": old["ip_filename"],
+            "master_filename": old["master_filename"],
+            "status": "pending",
+            "automation_slug": old["automation_slug"]
+        })
+        .execute()
+        .data[0]
+    )
+
+    bg.add_task(execute_pp_run, new["id"])
+
+    return {"status": "pp_rerun_started"}
 
 # =========================================================
 # UNIVERSAL DELETE RUN (PL CONSO + PL INPUT)na
@@ -1074,7 +1263,7 @@ def cancel_run(run_id: str, request: Request, user_id: str = Depends(get_current
     for f in files or []:
         remove_from_buckets(
             f["storage_path"],
-            ["run-outputs", "input-creation-output", "pdp-run-output"]
+            ["run-outputs", "input-creation-output", "pdp-run-output", "pp-run-output"]
         )
 
     # -------------------------
@@ -1111,7 +1300,7 @@ def delete_run(run_id: str, request: Request, user_id: str = Depends(get_current
     for f in files or []:
         remove_from_buckets(
             f["storage_path"],
-            ["run-outputs", "input-creation-output", "pdp-run-output"]
+            ["run-outputs", "input-creation-output", "pdp-run-output", "pp-run-output"]
         )
 
     supabase.table("run_logs").delete().eq("run_id", run_id).execute()
