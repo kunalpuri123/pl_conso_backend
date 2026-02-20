@@ -294,7 +294,8 @@ def read_meta(review_file):
 
 def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
     shutil.copyfile(ae_template_file, review_file)
-    subprocess.run(["attrib", "-R", review_file], shell=True)
+    if os.name == "nt":
+        subprocess.run(["attrib", "-R", review_file], shell=True)
 
     wb = load_workbook(review_file)
     final = next(s for s in wb.sheetnames if s.lower() == "final")
@@ -370,7 +371,8 @@ def prepare_mode(args):
         clear_brand_division_zeros(review_file, values_file)
         ae_pass, ae_failed_cells = validate_checks_using_values(review_file, values_file)
         try:
-            os.remove(values_file)
+            if os.path.abspath(values_file) != os.path.abspath(review_file):
+                os.remove(values_file)
         except OSError:
             pass
 
@@ -441,7 +443,8 @@ def prepare_mode(args):
         final_sheet = get_final_sheet_name(values_file)
         final_df = pd.read_excel(values_file, sheet_name=final_sheet, dtype=str, keep_default_na=False)
         try:
-            os.remove(values_file)
+            if os.path.abspath(values_file) != os.path.abspath(review_file):
+                os.remove(values_file)
         except OSError:
             pass
 
@@ -505,7 +508,8 @@ def finalize_mode(args):
         ae_pass, ae_failed_cells = validate_checks_using_values(args.review_file, values_file)
         if not ae_pass:
             try:
-                os.remove(values_file)
+                if os.path.abspath(values_file) != os.path.abspath(args.review_file):
+                    os.remove(values_file)
             except OSError:
                 pass
             raise ValueError(
@@ -515,7 +519,8 @@ def finalize_mode(args):
         final_sheet = get_final_sheet_name(values_file)
         final_df = pd.read_excel(values_file, sheet_name=final_sheet, dtype=str, keep_default_na=False)
         try:
-            os.remove(values_file)
+            if os.path.abspath(values_file) != os.path.abspath(args.review_file):
+                os.remove(values_file)
         except OSError:
             pass
     else:
