@@ -442,6 +442,8 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
 
     for r, (_, row) in enumerate(conso_df.iterrows(), 2):
         for c, val in enumerate(row, 1):
+            if pd.isna(val):
+                val = None
             ws_final.cell(r, c, val)
 
     for c in range(17, 22):
