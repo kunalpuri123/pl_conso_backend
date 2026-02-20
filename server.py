@@ -1013,56 +1013,19 @@ def execute_pp_run(run_id: str):
         if not review_local and os.path.exists(output_local):
             review_local = os.path.abspath(output_local)
 
-        bundle_candidates = []
-        if final_xlsx_local and os.path.exists(final_xlsx_local):
-            bundle_candidates.append(final_xlsx_local)
+        # Store only pp_output workbook (review/highlight file) for PP runs.
+        pp_output_local = output_local if os.path.exists(output_local) else ""
+        if not pp_output_local and review_local and os.path.exists(review_local):
+            pp_output_local = review_local
 
-        if final_tsv_local and os.path.exists(final_tsv_local):
-            bundle_candidates.append(final_tsv_local)
-
-        if review_local and os.path.exists(review_local):
-            bundle_candidates.append(review_local)
-
-        if checklist_local and os.path.exists(checklist_local):
-            bundle_candidates.append(checklist_local)
-
-        # Fallback for unexpected script output format.
-        if not bundle_candidates and os.path.exists(output_local):
-            bundle_candidates.append(output_local)
-
-        # Upload one consolidated zip containing all generated artifacts.
-        unique_candidates = []
-        seen = set()
-        for p in bundle_candidates:
-            ap = os.path.abspath(p)
-            if ap in seen:
-                continue
-            seen.add(ap)
-            unique_candidates.append(p)
-        if unique_candidates:
-            # Naming: <run_uuid>_<original/final_name>_All_All_All.zip
-            base_name_source = (
-                os.path.basename(final_xlsx_local) if final_xlsx_local and os.path.exists(final_xlsx_local)
-                else os.path.basename(run.get("op_filename") or run.get("ip_filename") or "pp_output.xlsx")
-            )
-            base_stem, _ = os.path.splitext(base_name_source)
-            safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", base_stem).strip("._")
-            if not re.search(r"all[_\s-]*all[_\s-]*all$", safe_stem, flags=re.IGNORECASE):
-                safe_stem = f"{safe_stem}_All_All_All"
-            zip_name = f"{run['run_uuid']}_{safe_stem}.zip"
-            zip_local = os.path.join(run_dir, zip_name)
-            with zipfile.ZipFile(zip_local, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                for fp in unique_candidates:
-                    if os.path.exists(fp):
-                        zf.write(fp, arcname=os.path.basename(fp))
-            log(run_id, "INFO", f"ZIP_CONTENTS={', '.join([os.path.basename(p) for p in unique_candidates])}")
-
-            upload_to_storage("pp-run-output", zip_name, zip_local)
+        if pp_output_local:
+            stored_name = f"{run['run_uuid']}_pp_output.xlsx"
+            upload_to_storage("pp-run-output", stored_name, pp_output_local)
             supabase.table("run_files").insert({
                 "run_id": run_id,
-                "filename": zip_name,
+                "filename": stored_name,
                 "file_type": "FINAL_OUTPUT",
-                "storage_path": zip_name
+                "storage_path": stored_name
             }).execute()
 
         # Upload refreshed AE template cache, if script produced one.

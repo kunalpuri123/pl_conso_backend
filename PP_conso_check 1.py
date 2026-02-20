@@ -170,10 +170,10 @@ def run_conso_check_once(file_path):
 
     promo_cols = {"is_it_promotional", "promo_message"}
     if promo_cols.issubset(df.columns):
-        promo_mask = (
-            ((df["is_it_promotional"] == "1") & (df["promo_message"] == "NA"))
-            | ((df["is_it_promotional"] == "0") & (df["promo_message"] != "NA"))
-        )
+        promo_num = pd.to_numeric(df["is_it_promotional"], errors="coerce")
+        promo_msg = df["promo_message"].astype(str).str.strip().str.upper()
+        promo_is_na = promo_msg.isin({"NA", "N/A", ""})
+        promo_mask = ((promo_num == 1) & promo_is_na) | ((promo_num == 0) & (~promo_is_na))
         invalid = df[
             promo_mask
         ]
@@ -313,7 +313,9 @@ def validate_checks_using_values(ae_path, values_path):
         wb_data.close()
         if failed_count > 0:
             print("⚠️ Excel recalculation unavailable; highlighted checks use cached/missing values.")
-        return failed_count == 0, failed_count, sorted(failed_rows)
+            return False, failed_count, sorted(failed_rows)
+
+        return True, 0, []
 
     for _ in range(5):
         try:
@@ -885,10 +887,11 @@ def backend_mode(op_file, ip_file, master_file, output_file, ae_template_file=""
     if not result:
         return
 
-    if result.get("status") == "PASS" and result.get("final_xlsx"):
-        _copy_if_needed(result["final_xlsx"], output_file)
-    elif result.get("review_file"):
+    # Keep pp_output.xlsx as review/highlight workbook for UI.
+    if result.get("review_file"):
         _copy_if_needed(result["review_file"], output_file)
+    elif result.get("status") == "PASS" and result.get("final_xlsx"):
+        _copy_if_needed(result["final_xlsx"], output_file)
 
 
 def build_parser():
