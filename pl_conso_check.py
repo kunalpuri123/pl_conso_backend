@@ -167,16 +167,52 @@ log_stage("Filtered IP by scope")
 # BUILD IP URL MAP PER SCOPE (correct way)
 # =========================================================
 
-ip_scope_to_urls = {}
+ip_scope_to_rows = {}
+
+def normalize_key_token(val):
+    if val is None:
+        return ""
+    if isinstance(val, float) and pd.isna(val):
+        return ""
+    s = str(val).strip()
+    if s.lower() in {"", "n/a", "na", "null", "nan"}:
+        return ""
+    return s.lower()
+
+def build_missing_lookup_key(top_category, category, sub_category, keyword):
+    return "||".join(
+        [
+            normalize_key_token(top_category),
+            normalize_key_token(category),
+            normalize_key_token(sub_category),
+            normalize_key_token(keyword),
+        ]
+    )
 
 for _, r in ip_df.iterrows():
     scope = str(r.get("scope")).strip()   # ✅ correct
     url = str(r.get("url")).strip()
+    top_category = str(r.get("top_category_lvmh", "")).strip()
+    category = str(r.get("category_lvmh", "")).strip()
+    sub_category = str(r.get("sub_category_lvmh", "")).strip()
+    keyword = str(r.get("search_keyword", r.get("keywords", ""))).strip()
 
     if url and url.lower() not in {"", "n/a", "na", "null", "nan"}:
-        ip_scope_to_urls.setdefault(scope, set()).add(url)
+        ip_scope_to_rows.setdefault(scope, []).append(
+            {
+                "scope": scope,
+                "missing_url": url,
+                "top_category_lvmh": top_category,
+                "category_lvmh": category,
+                "sub_category_lvmh": sub_category,
+                "keyword": keyword,
+                "missing_url_unique_key": build_missing_lookup_key(
+                    top_category, category, sub_category, keyword
+                ),
+            }
+        )
 
-log_stage(f"Built IP scope->URL map: {len(ip_scope_to_urls)} scopes")
+log_stage(f"Built IP scope->URL map: {len(ip_scope_to_rows)} scopes")
 
 # ================= NORMALIZE COLUMN NAMES =================
 df.columns = [c.strip().lower() for c in df.columns]
@@ -231,9 +267,13 @@ for c in df_cols:
             allowed_plus_auto.add(c)
 
 extra_columns = sorted(list(df_cols - allowed_plus_auto))
+missing_columns = sorted(list(ALLOWED_COLUMNS - df_cols))
 
 extra_columns_df = pd.DataFrame({
     "extra_column_name": extra_columns
+})
+missing_columns_df = pd.DataFrame({
+    "missing_column_name": missing_columns
 })
 
 if extra_columns:
@@ -242,6 +282,16 @@ if extra_columns:
         print("   -", c)
 else:
     print("✅ No extra columns found in output file.")
+
+if missing_columns:
+    print("❌ MISSING COLUMNS FOUND IN OUTPUT FILE:")
+    for c in missing_columns:
+        print("   -", c)
+else:
+    print("✅ No missing columns found in output file.")
+
+df["extra_columns_check"] = "PASS" if len(extra_columns) == 0 else "FAIL"
+df["missing_columns_check"] = "PASS" if len(missing_columns) == 0 else "FAIL"
 
 # ================= NA HANDLING =================
 def is_na(val):
@@ -410,6 +460,7 @@ rname_na = series_is_na(df["rname"])
 country_na = series_is_na(df["country"])
 brand_na = series_is_na(df["brand"])
 pname_na = series_is_na(df["pname"])
+pname_has_double_quote = df["pname"].astype(str).str.contains('"', regex=False, na=False)
 productid_na = series_is_na(productid_s)
 
 productid_format_ok = productid_s.astype(str).str.match(r"^[^_]+(_[^_]+){2,3}$", na=False)
@@ -434,7 +485,7 @@ df["country_check"] = np.where(country_na, "PASS", np.where(country_valid, "PASS
 df["country_missing"] = np.where(country_na | country_valid, "", country_s)
 
 df["brand_check"] = np.where(brand_na, "FAIL", "PASS")
-df["pname_check"] = np.where(pname_na, "FAIL", "PASS")
+df["pname_check"] = np.where(pname_na | pname_has_double_quote, "FAIL", "PASS")
 
 # ================= POSITION CHECK =================
 df["position"] = pd.to_numeric(df["position"], errors="coerce")
@@ -566,7 +617,7 @@ FAILURE_MESSAGE_MAP = {
     "rname_check": "rname should match as per snowflake database",
     "country_check": "country should match as per snowflake database",
     "brand_check": "brand should not contain n/a values",
-    "pname_check": "pname should not contain n/a values",
+    "pname_check": "pname should not contain n/a values or double quotes",
     "keywords_ip_check": "keywords need to have all values which are available in IP",
     "purl_ip_check": "purl should contain all urls which are in IP",
     "top_category_lvmh_ip_check": "top_category_lvmh mismatch with IP",
@@ -579,6 +630,8 @@ FAILURE_MESSAGE_MAP = {
     "date_check": "date should be current date",
     "product_page_url_check": "product_page_url should not be n/a",
     "listing_type_check": "listing_type should be Organic or Sponsored",
+    "extra_columns_check": "one or more extra columns exist that are not in template",
+    "missing_columns_check": "one or more required columns are missing from template",
     "position_validation_status": "position count less than 60",
     "Total_results= position": "Neither total_results is  equal to position nor 120"
 }
@@ -627,6 +680,23 @@ _t = time.perf_counter()
 # Build OP url set per scope
 op_scope_to_urls = {}
 
+# Build OP lookup key set per scope for missing-URL verification
+df["missing_url_unique_key"] = df.apply(
+    lambda r: build_missing_lookup_key(
+        r.get("top_category_lvmh", ""),
+        r.get("category_lvmh", ""),
+        r.get("sub_category_lvmh", ""),
+        r.get("keywords", ""),
+    ),
+    axis=1,
+)
+op_scope_to_keys = set(
+    zip(
+        df["scope"].astype(str).str.strip(),
+        df["missing_url_unique_key"].astype(str).str.strip(),
+    )
+)
+
 for _, r in df.iterrows():
     scope = str(r.get("scope")).strip()
     url = str(r.get("purl")).strip()
@@ -635,17 +705,23 @@ for _, r in df.iterrows():
         op_scope_to_urls.setdefault(scope, set()).add(url)
 
 missing_rows = []
+seen_missing = set()
 
-for scope, ip_urls in ip_scope_to_urls.items():
+for scope, ip_rows in ip_scope_to_rows.items():
     op_urls = op_scope_to_urls.get(scope, set())
+    for rec in ip_rows:
+        url = rec["missing_url"]
+        key = rec["missing_url_unique_key"]
+        is_url_missing = url not in op_urls
+        is_key_missing = (scope, key) not in op_scope_to_keys
 
-    missing_urls = ip_urls - op_urls
-
-    for u in missing_urls:
-        missing_rows.append({
-            "scope": scope,
-            "missing_url": u
-        })
+        # Only keep as missing when both URL and lookup key are absent in main data.
+        if is_url_missing and is_key_missing:
+            dedupe_key = (scope, url, key)
+            if dedupe_key in seen_missing:
+                continue
+            seen_missing.add(dedupe_key)
+            missing_rows.append(rec)
 
 missing_urls_df = pd.DataFrame(missing_rows)
 
@@ -692,6 +768,13 @@ with pd.ExcelWriter(
     extra_columns_df.to_excel(
         writer,
         sheet_name="Extra_Columns",
+        index=False
+    )
+
+    # Missing columns
+    missing_columns_df.to_excel(
+        writer,
+        sheet_name="Missing_Columns",
         index=False
     )
 

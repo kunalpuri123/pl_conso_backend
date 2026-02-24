@@ -614,13 +614,14 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
         checks_range = f"A2:{get_column_letter(ws_checks.max_column)}{ws_checks.max_row}"
         yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
         # Catch both real booleans/errors and text-rendered values like "FALSE" / "#N/A".
+        # Wrap checks with IFERROR so CF formula itself never errors on error-typed cells.
         cf_formula = (
             'OR('
-            'A2=FALSE,'
-            'UPPER(TRIM(A2&""))="FALSE",'
+            'IFERROR(A2=FALSE,FALSE),'
+            'IFERROR(UPPER(TRIM(A2&""))="FALSE",FALSE),'
             'ISERROR(A2),'
-            'UPPER(TRIM(A2&""))="#N/A",'
-            'UPPER(TRIM(A2&""))="#NA"'
+            'IFERROR(UPPER(TRIM(A2&""))="#N/A",FALSE),'
+            'IFERROR(UPPER(TRIM(A2&""))="#NA",FALSE)'
             ')'
         )
         ws_checks.conditional_formatting.add(
