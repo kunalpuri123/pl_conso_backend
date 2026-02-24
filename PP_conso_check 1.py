@@ -270,7 +270,7 @@ def clear_brand_division_zeros(ae_path, values_path):
     wb_val.close()
 
 
-def validate_checks_using_values(ae_path, values_path):
+def validate_checks_using_values(ae_path, values_path, fail_on_unresolved=True):
     def is_fail_value(val):
         if val in (False, "FALSE", "false", 0, "0"):
             return True
@@ -303,30 +303,42 @@ def validate_checks_using_values(ae_path, values_path):
         highlight = PatternFill("solid", fgColor="FFFF00")
         clear_fill = PatternFill(fill_type=None)
         failed_count = 0
+        unresolved_count = 0
         failed_rows = set()
+        unresolved_rows = set()
         max_row_to_check = min(ws_final.max_row, ws_checks_formula.max_row, ws_checks_data.max_row)
 
         for r in range(2, max_row_to_check + 1):
             for c in range(1, ws_checks_formula.max_column + 1):
                 val_cached = ws_checks_data.cell(r, c).value
                 val_visible = ws_checks_formula.cell(r, c).value
-                if (
-                    is_fail_value(val_cached)
-                    or is_fail_value(val_visible)
-                    or is_unresolved_formula(val_visible, val_cached)
-                ):
+                fail = is_fail_value(val_cached) or is_fail_value(val_visible)
+                unresolved = is_unresolved_formula(val_visible, val_cached)
+                if fail:
                     ws_checks_formula.cell(r, c).fill = highlight
                     failed_count += 1
                     failed_rows.add(r)
+                elif unresolved:
+                    # Keep unresolved formulas uncolored; Excel conditional formatting will
+                    # still highlight concrete FALSE/#N/A values when workbook opens.
+                    ws_checks_formula.cell(r, c).fill = clear_fill
+                    unresolved_count += 1
+                    unresolved_rows.add(r)
                 else:
                     ws_checks_formula.cell(r, c).fill = clear_fill
 
         wb_formula.save(ae_path)
         wb_formula.close()
         wb_data.close()
-        if failed_count > 0:
+        total_failed = failed_count + unresolved_count if fail_on_unresolved else failed_count
+        if total_failed > 0:
             print("⚠️ Excel recalculation unavailable; highlighted checks use cached/missing values.")
-            return False, failed_count, sorted(failed_rows)
+            if unresolved_count > 0 and fail_on_unresolved:
+                print(
+                    f"⚠️ {unresolved_count} checks could not be evaluated (formula cache missing). "
+                    "Open in Excel and save once to refresh cached values."
+                )
+            return False, total_failed, sorted(failed_rows if not fail_on_unresolved else failed_rows.union(unresolved_rows))
 
         return True, 0, []
 
@@ -351,28 +363,33 @@ def validate_checks_using_values(ae_path, values_path):
     highlight = PatternFill("solid", fgColor="FFFF00")
     clear_fill = PatternFill(fill_type=None)
     failed_count = 0
+    unresolved_count = 0
     failed_rows = set()
+    unresolved_rows = set()
     max_row_to_check = min(ws_final.max_row, ws_checks.max_row, ws_values.max_row)
 
     for r in range(2, max_row_to_check + 1):
         for c in range(1, ws_checks.max_column + 1):
             val_cached = ws_values.cell(r, c).value
             val_visible = ws_checks.cell(r, c).value
-            if (
-                is_fail_value(val_cached)
-                or is_fail_value(val_visible)
-                or is_unresolved_formula(val_visible, val_cached)
-            ):
+            fail = is_fail_value(val_cached) or is_fail_value(val_visible)
+            unresolved = is_unresolved_formula(val_visible, val_cached)
+            if fail:
                 ws_checks.cell(r, c).fill = highlight
                 failed_count += 1
                 failed_rows.add(r)
+            elif unresolved:
+                ws_checks.cell(r, c).fill = clear_fill
+                unresolved_count += 1
+                unresolved_rows.add(r)
             else:
                 ws_checks.cell(r, c).fill = clear_fill
 
     wb_ae.save(ae_path)
     wb_ae.close()
     wb_val.close()
-    return failed_count == 0, failed_count, sorted(failed_rows)
+    total_failed = failed_count + unresolved_count if fail_on_unresolved else failed_count
+    return total_failed == 0, total_failed, sorted(failed_rows if not fail_on_unresolved else failed_rows.union(unresolved_rows))
 
 
 def write_checklist_file(checklist_path, summary_rows, rowwise_df):
@@ -656,7 +673,11 @@ def prepare_mode(args):
         write_conso_to_ae_template(conso_df, ae_template_file, review_file)
         values_file = create_values_file(review_file)
         clear_brand_division_zeros(review_file, values_file)
-        ae_pass, ae_failed_cells, ae_failed_rows = validate_checks_using_values(review_file, values_file)
+        ae_pass, ae_failed_cells, ae_failed_rows = validate_checks_using_values(
+            review_file,
+            values_file,
+            fail_on_unresolved=False,
+        )
         try:
             if os.path.abspath(values_file) != os.path.abspath(review_file):
                 os.remove(values_file)
