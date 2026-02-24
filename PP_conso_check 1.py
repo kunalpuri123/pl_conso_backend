@@ -10,6 +10,8 @@ from datetime import datetime
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill
 
 try:
@@ -278,6 +280,14 @@ def validate_checks_using_values(ae_path, values_path):
                 return True
         return False
 
+    def is_unresolved_formula(val_visible, val_cached):
+        if isinstance(val_visible, str) and val_visible.startswith("="):
+            if val_cached is None:
+                return True
+            if isinstance(val_cached, str) and val_cached.strip() == "":
+                return True
+        return False
+
     # Cloud/Linux fallback: no Excel COM.
     # Use cached formula results if available; if missing/false, keep highlight as failed.
     if win32 is None and os.path.abspath(values_path) == os.path.abspath(ae_path):
@@ -300,7 +310,11 @@ def validate_checks_using_values(ae_path, values_path):
             for c in range(1, ws_checks_formula.max_column + 1):
                 val_cached = ws_checks_data.cell(r, c).value
                 val_visible = ws_checks_formula.cell(r, c).value
-                if is_fail_value(val_cached) or is_fail_value(val_visible):
+                if (
+                    is_fail_value(val_cached)
+                    or is_fail_value(val_visible)
+                    or is_unresolved_formula(val_visible, val_cached)
+                ):
                     ws_checks_formula.cell(r, c).fill = highlight
                     failed_count += 1
                     failed_rows.add(r)
@@ -344,7 +358,11 @@ def validate_checks_using_values(ae_path, values_path):
         for c in range(1, ws_checks.max_column + 1):
             val_cached = ws_values.cell(r, c).value
             val_visible = ws_checks.cell(r, c).value
-            if is_fail_value(val_cached) or is_fail_value(val_visible):
+            if (
+                is_fail_value(val_cached)
+                or is_fail_value(val_visible)
+                or is_unresolved_formula(val_visible, val_cached)
+            ):
                 ws_checks.cell(r, c).fill = highlight
                 failed_count += 1
                 failed_rows.add(r)
@@ -556,21 +574,35 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
         )
         return formula
 
-    base_formulas = {
-        c: ws_checks.cell(2, c).value
-        for c in range(1, ws_checks.max_column + 1)
+    base_formulas = {c: ws_checks.cell(2, c).value for c in range(1, ws_checks.max_column + 1)}
+    check_headers = {
+        c: str(ws_checks.cell(1, c).value or "").strip().lower() for c in range(1, ws_checks.max_column + 1)
     }
+    fixed_row2_headers = {"country", "channel"}
     for r in range(2, ws_final.max_row + 1):
         for c in range(1, ws_checks.max_column + 1):
             base = base_formulas.get(c)
             if isinstance(base, str) and base.startswith("="):
-                # Country/channel checks (cols 6,7) must always use row-2 anchors.
-                if c in (6, 7):
+                # Country/channel checks must always use row-2 anchors.
+                if check_headers.get(c) in fixed_row2_headers:
                     ws_checks.cell(r, c, base)
                 else:
                     ws_checks.cell(r, c, shift_checks_formula(base, r))
             elif r > ws_checks.max_row:
                 ws_checks.cell(r, c, base if base is not None else "")
+
+    # Excel-side highlighting: mark any FALSE or error (#N/A, #VALUE!, etc.) in Checks.
+    # This keeps highlighting reliable even when Python cannot recalculate formulas.
+    if ws_checks.max_row >= 2 and ws_checks.max_column >= 1:
+        checks_range = f"A2:{get_column_letter(ws_checks.max_column)}{ws_checks.max_row}"
+        yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+        ws_checks.conditional_formatting.add(
+            checks_range,
+            FormulaRule(
+                formula=["=OR(A2=FALSE,ISERROR(A2))"],
+                fill=yellow_fill,
+            ),
+        )
 
     wb.save(review_file)
     wb.close()
