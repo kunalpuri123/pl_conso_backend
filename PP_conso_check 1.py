@@ -298,8 +298,6 @@ def validate_checks_using_values(ae_path, values_path):
 
         for r in range(2, max_row_to_check + 1):
             for c in range(1, ws_checks_formula.max_column + 1):
-                if c in (6, 7):
-                    continue
                 val_cached = ws_checks_data.cell(r, c).value
                 val_visible = ws_checks_formula.cell(r, c).value
                 if is_fail_value(val_cached) or is_fail_value(val_visible):
@@ -344,8 +342,6 @@ def validate_checks_using_values(ae_path, values_path):
 
     for r in range(2, max_row_to_check + 1):
         for c in range(1, ws_checks.max_column + 1):
-            if c in (6, 7):
-                continue
             val_cached = ws_values.cell(r, c).value
             val_visible = ws_checks.cell(r, c).value
             if is_fail_value(val_cached) or is_fail_value(val_visible):
@@ -421,8 +417,6 @@ def checks_cached_available(template_path):
         max_row = min(wsf.max_row, wsd.max_row)
         for r in range(2, max_row + 1):
             for c in range(1, wsf.max_column + 1):
-                if c in (6, 7):
-                    continue
                 raw = wsf.cell(r, c).value
                 if isinstance(raw, str) and raw.startswith("="):
                     val = wsd.cell(r, c).value
@@ -570,7 +564,11 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
         for c in range(1, ws_checks.max_column + 1):
             base = base_formulas.get(c)
             if isinstance(base, str) and base.startswith("="):
-                ws_checks.cell(r, c, shift_checks_formula(base, r))
+                # Country/channel checks (cols 6,7) must always use row-2 anchors.
+                if c in (6, 7):
+                    ws_checks.cell(r, c, base)
+                else:
+                    ws_checks.cell(r, c, shift_checks_formula(base, r))
             elif r > ws_checks.max_row:
                 ws_checks.cell(r, c, base if base is not None else "")
 
