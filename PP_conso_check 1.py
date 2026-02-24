@@ -613,10 +613,20 @@ def write_conso_to_ae_template(conso_df, ae_template_file, review_file):
     if ws_checks.max_row >= 2 and ws_checks.max_column >= 1:
         checks_range = f"A2:{get_column_letter(ws_checks.max_column)}{ws_checks.max_row}"
         yellow_fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+        # Catch both real booleans/errors and text-rendered values like "FALSE" / "#N/A".
+        cf_formula = (
+            'OR('
+            'A2=FALSE,'
+            'UPPER(TRIM(A2&""))="FALSE",'
+            'ISERROR(A2),'
+            'UPPER(TRIM(A2&""))="#N/A",'
+            'UPPER(TRIM(A2&""))="#NA"'
+            ')'
+        )
         ws_checks.conditional_formatting.add(
             checks_range,
             FormulaRule(
-                formula=["=OR(A2=FALSE,ISERROR(A2))"],
+                formula=[cf_formula],
                 fill=yellow_fill,
             ),
         )
