@@ -972,6 +972,7 @@ def execute_pp_run(run_id: str):
         }).eq("id", run_id).execute()
 
         parsed_paths = {
+            "MODE": "",
             "FINAL_XLSX": "",
             "FINAL_TSV": "",
             "REVIEW_FILE": "",
@@ -1008,27 +1009,19 @@ def execute_pp_run(run_id: str):
         review_local = parsed_paths.get("REVIEW_FILE") or ""
         checklist_local = parsed_paths.get("CHECKLIST_FILE") or ""
         ae_template_cache_local = parsed_paths.get("AE_TEMPLATE_CACHE_FILE") or ""
+        script_mode = (parsed_paths.get("MODE") or "").strip().upper()
 
         # Backward-safe fallback: review workbook is usually output_local in fresh mode.
         if not review_local and os.path.exists(output_local):
             review_local = os.path.abspath(output_local)
 
-        # Store only pp_output workbook (review/highlight file) for PP runs.
+        # Store pp workbook as default FINAL_OUTPUT.
         pp_output_local = output_local if os.path.exists(output_local) else ""
         if not pp_output_local and review_local and os.path.exists(review_local):
             pp_output_local = review_local
 
-        if pp_output_local:
-            stored_name = f"{run['run_uuid']}_pp_output.xlsx"
-            upload_to_storage("pp-run-output", stored_name, pp_output_local)
-            supabase.table("run_files").insert({
-                "run_id": run_id,
-                "filename": stored_name,
-                "file_type": "FINAL_OUTPUT",
-                "storage_path": stored_name
-            }).execute()
-
         # If script produced final TSV (revalidation/success path), upload as a ZIP.
+        tsv_zip_name = ""
         if final_tsv_local and os.path.exists(final_tsv_local):
             tsv_zip_local = os.path.join(run_dir, "pp_final_tsv.zip")
             with zipfile.ZipFile(tsv_zip_local, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1043,6 +1036,26 @@ def execute_pp_run(run_id: str):
                 "storage_path": tsv_zip_name
             }).execute()
             log(run_id, "INFO", f"TSV zip uploaded: {tsv_zip_name}")
+
+        # Compatibility: in revalidation mode, make default FINAL_OUTPUT point to TSV zip
+        # so existing download buttons (that only fetch FINAL_OUTPUT) return the TSV payload.
+        if script_mode == "REVALIDATION" and tsv_zip_name:
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": tsv_zip_name,
+                "file_type": "FINAL_OUTPUT",
+                "storage_path": tsv_zip_name
+            }).execute()
+            log(run_id, "INFO", "FINAL_OUTPUT mapped to TSV zip for revalidation mode")
+        elif pp_output_local:
+            stored_name = f"{run['run_uuid']}_pp_output.xlsx"
+            upload_to_storage("pp-run-output", stored_name, pp_output_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": stored_name,
+                "file_type": "FINAL_OUTPUT",
+                "storage_path": stored_name
+            }).execute()
 
         # Upload refreshed AE template cache, if script produced one.
         if ae_name and ae_template_cache_local and os.path.exists(ae_template_cache_local):
