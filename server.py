@@ -1028,6 +1028,22 @@ def execute_pp_run(run_id: str):
                 "storage_path": stored_name
             }).execute()
 
+        # If script produced final TSV (revalidation/success path), upload as a ZIP.
+        if final_tsv_local and os.path.exists(final_tsv_local):
+            tsv_zip_local = os.path.join(run_dir, "pp_final_tsv.zip")
+            with zipfile.ZipFile(tsv_zip_local, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(final_tsv_local, arcname=os.path.basename(final_tsv_local))
+
+            tsv_zip_name = f"{run['run_uuid']}_pp_tsv.zip"
+            upload_to_storage("pp-run-output", tsv_zip_name, tsv_zip_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": tsv_zip_name,
+                "file_type": "TSV_ZIP",
+                "storage_path": tsv_zip_name
+            }).execute()
+            log(run_id, "INFO", f"TSV zip uploaded: {tsv_zip_name}")
+
         # Upload refreshed AE template cache, if script produced one.
         if ae_name and ae_template_cache_local and os.path.exists(ae_template_cache_local):
             try:
