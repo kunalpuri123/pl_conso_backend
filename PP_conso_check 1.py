@@ -851,7 +851,13 @@ def finalize_mode(args):
     if ae_flag.lower() != "no":
         values_file = create_values_file(args.review_file)
         clear_brand_division_zeros(args.review_file, values_file)
-        ae_pass, ae_failed_cells, _ = validate_checks_using_values(args.review_file, values_file)
+        # Keep finalize behavior aligned with prepare mode on Linux/cloud:
+        # unresolved formula caches should not block finalization.
+        ae_pass, ae_failed_cells, _ = validate_checks_using_values(
+            args.review_file,
+            values_file,
+            fail_on_unresolved=False,
+        )
         if not ae_pass:
             try:
                 if os.path.abspath(values_file) != os.path.abspath(args.review_file):

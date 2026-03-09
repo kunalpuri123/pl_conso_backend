@@ -12,14 +12,103 @@ import json
 print("=== PDP CHECKLIST STARTED ===", flush=True)
 
 # ================= ARGUMENTS =================
-if len(sys.argv) != 5:
-    print("Usage: python pdp_check.py <CRAWL_OUTPUT> <CRAWL_INPUT> <MASTER_FILE> <OUTPUT_FILE>")
-    sys.exit(1)
+SUPPORTED_INPUT_EXTS = (".tsv", ".csv", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm")
+SUPPORTED_MASTER_EXTS = (".csv", ".tsv", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm")
 
-OP_FILE = Path(sys.argv[1])   # crawl output to be checked
-IP_FILE = Path(sys.argv[2])   # crawl input (consolidated)
-MASTER_FILE = Path(sys.argv[3])
-OUTPUT_FILE = Path(sys.argv[4])
+
+def newest_file_in_dir(dir_path: Path, exts: tuple[str, ...]) -> Path | None:
+    if not dir_path.exists() or not dir_path.is_dir():
+        return None
+    files = [p for p in dir_path.iterdir() if p.is_file() and p.suffix.lower() in exts]
+    if not files:
+        return None
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files[0]
+
+
+def first_existing_dir(paths: list[str]) -> Path | None:
+    for p in paths:
+        p = (p or "").strip()
+        if not p:
+            continue
+        d = Path(p)
+        if d.exists() and d.is_dir():
+            return d
+    return None
+
+
+def resolve_local_paths() -> tuple[Path, Path, Path, Path]:
+    op_dir = first_existing_dir([
+        os.getenv("PDP_LOCAL_OP_DIR", "").strip(),
+        "pdp-input",
+        "work/pdp-input",
+        "work/input/pdp-input",
+    ])
+    ip_dir = first_existing_dir([
+        os.getenv("PDP_LOCAL_IP_DIR", "").strip(),
+        "pdp-crawl-input",
+        "work/pdp-crawl-input",
+        "work/input/pdp-crawl-input",
+    ])
+    master_dir = first_existing_dir([
+        os.getenv("PDP_LOCAL_MASTER_DIR", "").strip(),
+        "pdp-masters",
+        "work/pdp-masters",
+        "work/input/pdp-masters",
+    ])
+    output_dir = first_existing_dir([
+        os.getenv("PDP_LOCAL_OUTPUT_DIR", "").strip(),
+        "pdp-run-output",
+        "work/pdp-run-output",
+        "work/output",
+        "output",
+    ])
+
+    if op_dir is None or ip_dir is None or master_dir is None:
+        print("❌ Local mode could not find required input folders.")
+        print("Set PDP_LOCAL_OP_DIR / PDP_LOCAL_IP_DIR / PDP_LOCAL_MASTER_DIR or pass 4 arguments.")
+        sys.exit(1)
+
+    op_file = newest_file_in_dir(op_dir, SUPPORTED_INPUT_EXTS)
+    ip_file = newest_file_in_dir(ip_dir, SUPPORTED_INPUT_EXTS)
+    master_file = newest_file_in_dir(master_dir, SUPPORTED_MASTER_EXTS)
+
+    if op_file is None or ip_file is None or master_file is None:
+        print("❌ Local mode could not find required files in one or more folders.")
+        print(f"OP folder: {op_dir}")
+        print(f"IP folder: {ip_dir}")
+        print(f"MASTER folder: {master_dir}")
+        print("Set PDP_LOCAL_* env vars, place files in those folders, or pass 4 arguments.")
+        sys.exit(1)
+
+    if output_dir is None:
+        output_dir = Path("pdp-run-output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    output_name = os.getenv("PDP_LOCAL_OUTPUT_NAME", "").strip()
+    if not output_name:
+        output_name = f"pdp_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    output_file = output_dir / output_name
+
+    print("ℹ️ Local mode detected (no CLI args). Using latest files from configured folders.", flush=True)
+    print(f"   OP dir     : {op_dir}", flush=True)
+    print(f"   IP dir     : {ip_dir}", flush=True)
+    print(f"   MASTER dir : {master_dir}", flush=True)
+    print(f"   OUTPUT dir : {output_dir}", flush=True)
+    return op_file, ip_file, master_file, output_file
+
+
+if len(sys.argv) == 5:
+    OP_FILE = Path(sys.argv[1])   # crawl output to be checked
+    IP_FILE = Path(sys.argv[2])   # crawl input (consolidated)
+    MASTER_FILE = Path(sys.argv[3])
+    OUTPUT_FILE = Path(sys.argv[4])
+elif len(sys.argv) == 1:
+    OP_FILE, IP_FILE, MASTER_FILE, OUTPUT_FILE = resolve_local_paths()
+else:
+    print("Usage: python pdp_check.py <CRAWL_OUTPUT> <CRAWL_INPUT> <MASTER_FILE> <OUTPUT_FILE>")
+    print("   or: python pdp_check.py  # local auto-pick from folder(s)")
+    sys.exit(1)
 
 DISPLAY_NAMES = {
     str(OP_FILE): os.environ.get("PDP_OP_NAME", ""),
@@ -897,9 +986,14 @@ scope_key_rating = scope_key_from_value(col_series(df, "scope", "").astype(str).
 if scope_key_rating in {"mfk", "hermes"}:
     df["rating_normalization_check"] = "PASS"
     mask_rating_valid = rating_numeric_ok & rating_in_range
-    # Require exactly one decimal place (X.X) for all valid ratings.
+    # Rule:
+    # - non-zero ratings must be exactly one decimal place (X.X)
+    # - zero rating must be exactly "0" (not "0.0")
+    mask_zero_rating = mask_rating_valid & rating_val.eq(0)
+    mask_non_zero_rating = mask_rating_valid & ~mask_zero_rating
     one_decimal_ok = rating_norm.str.match(r"^[0-9]+\.[0-9]$", na=False)
-    fail_norm = mask_rating_valid & ~one_decimal_ok
+    zero_exact_ok = rating_norm.eq("0")
+    fail_norm = (mask_non_zero_rating & ~one_decimal_ok) | (mask_zero_rating & ~zero_exact_ok)
     fail_norm |= (~mask_rating_valid & ~rating_is_na & ~mask_rating_review_na)
     df.loc[fail_norm, "rating_normalization_check"] = "FAIL"
 
@@ -1022,7 +1116,7 @@ FAILURE_MESSAGE_MAP = {
     "pid_check": "PID is missing or n/a.",
     "rname_check": "Retailer name (rname) is not valid for this scope or is missing/n/a.",
     "required_non_na_check": "One or more required fields contain n/a values.",
-    "rating_normalization_check": "Rating format rule failed (MFK/Hermes): rating must have exactly one decimal place (X.X).",
+    "rating_normalization_check": "Rating format rule failed (MFK/Hermes): non-zero rating must be X.X and zero must be exactly 0 (not 0.0).",
     "na_sku_input_check": "Not available SKU must match input PName and SKUVARIENT (MFK/Hermes, key=rname+base_id+country).",
     "na_url_check": "For Not Available SKU (MFK/Hermes), url must be 'Not Available' (not n/a).",
     "upc_check": "UPC is in scientific notation (not allowed).",

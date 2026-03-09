@@ -1,0 +1,47 @@
+name: Build PDP Binaries
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: pdp-local-runner-linux
+            binary_path: dist/pdp-local-runner
+          - os: macos-latest
+            artifact_name: pdp-local-runner-macos
+            binary_path: dist/pdp-local-runner
+          - os: windows-latest
+            artifact_name: pdp-local-runner-windows
+            binary_path: dist/pdp-local-runner.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller --clean --noconfirm --onefile --name pdp-local-runner pdp_check.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.binary_path }}
