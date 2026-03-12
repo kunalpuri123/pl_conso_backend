@@ -784,8 +784,10 @@ def prepare_mode(args):
         final_df = conso_df.copy()
     else:
         values_file = create_values_file(review_file)
-        final_sheet = get_final_sheet_name(values_file)
-        final_df = pd.read_excel(values_file, sheet_name=final_sheet, dtype=str, keep_default_na=False)
+        use_formula_fallback = os.path.abspath(values_file) == os.path.abspath(review_file)
+        if use_formula_fallback:
+            print("⚠️ Recalculation unavailable; formula text will be used where cached Final values are missing.")
+        final_df = load_final_dataframe(values_file, prefer_formula_when_missing=use_formula_fallback)
         try:
             if os.path.abspath(values_file) != os.path.abspath(review_file):
                 os.remove(values_file)
@@ -837,6 +839,53 @@ def get_final_sheet_name(path):
         wb.close()
 
 
+def load_final_dataframe(path, prefer_formula_when_missing=False):
+    """
+    Load Final sheet primarily using data_only values.
+    If recalculation/cached values are missing, optionally fall back to formula text
+    for empty cells so formula-based columns are not blank in final outputs.
+    """
+    wb_data = load_workbook(path, data_only=True)
+    wb_formula = None
+    try:
+        final = next(s for s in wb_data.sheetnames if s.lower() == "final")
+        ws_data = wb_data[final]
+
+        ws_formula = None
+        if prefer_formula_when_missing:
+            wb_formula = load_workbook(path, data_only=False)
+            ws_formula = wb_formula[final]
+
+        headers = ["" if ws_data.cell(1, c).value is None else str(ws_data.cell(1, c).value)
+                   for c in range(1, ws_data.max_column + 1)]
+        while headers and headers[-1] == "":
+            headers.pop()
+        max_col = len(headers)
+        if max_col == 0:
+            return pd.DataFrame()
+
+        rows = []
+        for r in range(2, ws_data.max_row + 1):
+            row_vals = []
+            for c in range(1, max_col + 1):
+                val = ws_data.cell(r, c).value
+                if prefer_formula_when_missing and (val is None or (isinstance(val, str) and val.strip() == "")):
+                    formula_val = ws_formula.cell(r, c).value if ws_formula is not None else None
+                    if isinstance(formula_val, str) and formula_val.startswith("="):
+                        val = formula_val
+                row_vals.append("" if val is None else str(val))
+
+            # Match pandas behavior: drop fully empty trailing rows
+            if any(v != "" for v in row_vals):
+                rows.append(row_vals)
+
+        return pd.DataFrame(rows, columns=headers)
+    finally:
+        wb_data.close()
+        if wb_formula is not None:
+            wb_formula.close()
+
+
 def finalize_mode(args):
     meta = read_meta(args.review_file)
     template = args.final_name_template or meta.get("final_name_template", "").strip()
@@ -868,16 +917,17 @@ def finalize_mode(args):
                 f"File is still not corrected for highlighted field. Failed cells: {ae_failed_cells}. "
                 "Please do changes and re-upload for validation."
             )
-        final_sheet = get_final_sheet_name(values_file)
-        final_df = pd.read_excel(values_file, sheet_name=final_sheet, dtype=str, keep_default_na=False)
+        use_formula_fallback = os.path.abspath(values_file) == os.path.abspath(args.review_file)
+        if use_formula_fallback:
+            print("⚠️ Recalculation unavailable; formula text will be used where cached Final values are missing.")
+        final_df = load_final_dataframe(values_file, prefer_formula_when_missing=use_formula_fallback)
         try:
             if os.path.abspath(values_file) != os.path.abspath(args.review_file):
                 os.remove(values_file)
         except OSError:
             pass
     else:
-        final_sheet = get_final_sheet_name(args.review_file)
-        final_df = pd.read_excel(args.review_file, sheet_name=final_sheet, dtype=str, keep_default_na=False)
+        final_df = load_final_dataframe(args.review_file, prefer_formula_when_missing=True)
 
     if {"brand_name", "exposed_sku"}.issubset(final_df.columns):
         final_df.loc[final_df["brand_name"] == "No Brand", "exposed_sku"] = "NA"

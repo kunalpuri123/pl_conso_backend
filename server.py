@@ -473,46 +473,108 @@ def execute_input_run(run_id: str):
             .data
         )
 
-        log(run_id, "INFO", "Input creation started")
+        automation_slug = str(run.get("automation_slug") or "pl-input").strip().lower()
+        input_configs = {
+            "pl-input": {
+                "label": "PL Input creation",
+                "biz_bucket": "input-creation-bussiness-file",
+                "crawl_bucket": "input-creation-crawl-team-file",
+                # Backward-compat: prefer current bucket, fallback to legacy bucket name.
+                "master_buckets": ["input-creation-master", "input-creation-final-template"],
+                "output_bucket": "input-creation-output",
+                "requires_master": True,
+            },
+            "pdp-input": {
+                "label": "PDP Input creation",
+                "biz_bucket": "pdp-input-creation-bussiness-file",
+                "crawl_bucket": "pdp-input-creation-crawl-team-file",
+                "master_buckets": [],
+                "output_bucket": "pdp-input-creation-output",
+                "requires_master": False,
+            },
+        }
+
+        if automation_slug not in input_configs:
+            raise Exception(f"Unsupported input automation slug: {automation_slug}")
+
+        cfg = input_configs[automation_slug]
+
+        log(run_id, "INFO", f"{cfg['label']} started")
 
         # -----------------------------
         # 2. local paths
         # -----------------------------
-        biz_local = os.path.join(run_dir, "biz.xlsx")
-        crawl_local = os.path.join(run_dir, "crawl.xlsx")
-        template_local = os.path.join(run_dir, "template.xlsx")
+        biz_name = run.get("op_filename")
+        crawl_name = run.get("ip_filename")
+        master_name = run.get("master_filename")
+
+        if not biz_name or not crawl_name:
+            raise Exception("Missing business/crawl input files in DB")
+
+        if cfg["requires_master"] and not master_name:
+            raise Exception("Missing master template file in DB")
+
+        biz_local = os.path.join(run_dir, os.path.basename(biz_name))
+        crawl_local = os.path.join(run_dir, os.path.basename(crawl_name))
+        template_local = os.path.join(run_dir, os.path.basename(master_name)) if master_name else ""
         output_local = os.path.join(run_dir, "merged_output.xlsx")
         zip_local = os.path.join(run_dir, "all_tsv_files.zip")
+
+        log(run_id, "INFO", f"Business file: {biz_name}")
+        log(run_id, "INFO", f"Crawl file: {crawl_name}")
+        if master_name:
+            log(run_id, "INFO", f"Master file: {master_name}")
 
 
         # -----------------------------
         # 3. download files
         # -----------------------------
         download_from_storage(
-            "input-creation-bussiness-file",
-            run["op_filename"],
+            cfg["biz_bucket"],
+            biz_name,
             biz_local
         )
 
         download_from_storage(
-            "input-creation-crawl-team-file",
-            run["ip_filename"],
+            cfg["crawl_bucket"],
+            crawl_name,
             crawl_local
         )
 
-        download_from_storage(
-            "input-creation-final-template",
-            run["master_filename"],
-            template_local
-        )
+        if cfg["requires_master"]:
+            master_downloaded = False
+            last_master_error = None
+            for bucket in cfg["master_buckets"]:
+                try:
+                    download_from_storage(bucket, master_name, template_local)
+                    master_downloaded = True
+                    break
+                except Exception as e:
+                    last_master_error = e
+
+            if not master_downloaded:
+                raise Exception(f"Master template download failed: {last_master_error}")
 
         log(run_id, "INFO", "All files downloaded")
 
         # -----------------------------
         # 4. run python script
         # -----------------------------
-        process = subprocess.Popen(
-            [
+        generated_tsv_local = ""
+        if automation_slug == "pdp-input":
+            command = [
+                "python",
+                "-u",
+                "pdp_input_creation_script.py",
+                "--root",
+                run_dir,
+                "--business-file",
+                biz_local,
+                "--cp-file",
+                crawl_local,
+            ]
+        else:
+            command = [
                 "python",
                 "-u",
                 "input_creation_script.py",
@@ -520,7 +582,10 @@ def execute_input_run(run_id: str):
                 crawl_local,
                 template_local,
                 output_local
-            ],
+            ]
+
+        process = subprocess.Popen(
+            command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True
@@ -531,7 +596,14 @@ def execute_input_run(run_id: str):
 
 
         for line in process.stdout:
-            log(run_id, "INFO", line.rstrip())
+            text = line.rstrip()
+            log(run_id, "INFO", text)
+            if automation_slug == "pdp-input":
+                m = re.search(r"Output file\s*:\s*(.+)$", text)
+                if m:
+                    candidate = m.group(1).strip()
+                    if candidate:
+                        generated_tsv_local = candidate
 
         process.wait()
 
@@ -548,32 +620,49 @@ def execute_input_run(run_id: str):
         # -----------------------------
         # 5. upload result
         # -----------------------------
-        output_filename = build_output_filename(run["run_uuid"], run.get("op_filename", ""), ".xlsx")
+        if automation_slug == "pdp-input":
+            if generated_tsv_local and os.path.exists(generated_tsv_local):
+                final_tsv_local = generated_tsv_local
+            else:
+                output_folders = [os.path.join(run_dir, "OUTPUT"), os.path.join(run_dir, "output")]
+                candidates = []
+                for folder in output_folders:
+                    if not os.path.isdir(folder):
+                        continue
+                    for name in os.listdir(folder):
+                        if name.lower().endswith(".tsv"):
+                            candidates.append(os.path.join(folder, name))
 
-        upload_to_storage(
-            "input-creation-output",
-            output_filename,
-            output_local
-        )
+                if not candidates:
+                    raise Exception("PDP input script did not generate any TSV output")
+                final_tsv_local = max(candidates, key=os.path.getmtime)
 
-        supabase.table("run_files").insert({
-            "run_id": run_id,
-            "filename": output_filename,
-            "file_type": "MERGED_OUTPUT",
-            "storage_path": output_filename
-        }).execute()
+            if not os.path.exists(final_tsv_local):
+                raise Exception(f"PDP output TSV not found: {final_tsv_local}")
 
-        # -----------------------------
-        # Upload TSV ZIP (ADD THIS)
-        # -----------------------------
+            with zipfile.ZipFile(zip_local, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(final_tsv_local, arcname=os.path.basename(final_tsv_local))
+
+            tsv_filename = f"{run['run_uuid']}_{os.path.basename(final_tsv_local)}"
+            upload_to_storage(cfg["output_bucket"], tsv_filename, final_tsv_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": tsv_filename,
+                "file_type": "MERGED_OUTPUT",
+                "storage_path": tsv_filename
+            }).execute()
+        else:
+            output_filename = build_output_filename(run["run_uuid"], run.get("op_filename", ""), ".xlsx")
+            upload_to_storage(cfg["output_bucket"], output_filename, output_local)
+            supabase.table("run_files").insert({
+                "run_id": run_id,
+                "filename": output_filename,
+                "file_type": "MERGED_OUTPUT",
+                "storage_path": output_filename
+            }).execute()
+
         zip_filename = f"{run['run_uuid']}_tsv.zip"
-
-        upload_to_storage(
-            "input-creation-output",
-             zip_filename,
-             zip_local
-        )
-
+        upload_to_storage(cfg["output_bucket"], zip_filename, zip_local)
         supabase.table("run_files").insert({
             "run_id": run_id,
             "filename": zip_filename,
@@ -587,10 +676,11 @@ def execute_input_run(run_id: str):
         # -----------------------------
         supabase.table("runs").update({
             "status": "completed",
-            "end_time": datetime.utcnow().isoformat()
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
         }).eq("id", run_id).execute()
 
-        log(run_id, "INFO", "Input creation completed")
+        log(run_id, "INFO", f"{cfg['label']} completed")
 
     except Exception as e:
         log(run_id, "ERROR", str(e))
@@ -609,7 +699,8 @@ def execute_input_run(run_id: str):
 
         supabase.table("runs").update({
             "status": "failed",
-            "end_time": datetime.utcnow().isoformat()
+            "end_time": datetime.utcnow().isoformat(),
+            "process_pid": None
         }).eq("id", run_id).execute()
 
     finally:
@@ -1344,7 +1435,7 @@ def cancel_run(run_id: str, request: Request, user_id: str = Depends(get_current
     for f in files or []:
         remove_from_buckets(
             f["storage_path"],
-            ["run-outputs", "input-creation-output", "pdp-run-output", "pp-run-output"]
+            ["run-outputs", "input-creation-output", "pdp-input-creation-output", "pdp-run-output", "pp-run-output"]
         )
 
     # -------------------------
@@ -1381,7 +1472,7 @@ def delete_run(run_id: str, request: Request, user_id: str = Depends(get_current
     for f in files or []:
         remove_from_buckets(
             f["storage_path"],
-            ["run-outputs", "input-creation-output", "pdp-run-output", "pp-run-output"]
+            ["run-outputs", "input-creation-output", "pdp-input-creation-output", "pdp-run-output", "pp-run-output"]
         )
 
     supabase.table("run_logs").delete().eq("run_id", run_id).execute()
