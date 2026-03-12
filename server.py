@@ -562,6 +562,13 @@ def execute_input_run(run_id: str):
         # -----------------------------
         generated_tsv_local = ""
         if automation_slug == "pdp-input":
+            go_live_date = str(run.get("go_live_date") or "").strip()
+            if go_live_date:
+                try:
+                    datetime.strptime(go_live_date, "%Y-%m-%d")
+                except ValueError:
+                    raise Exception(f"Invalid go_live_date format: {go_live_date}. Expected YYYY-MM-DD")
+
             command = [
                 "python",
                 "-u",
@@ -573,6 +580,9 @@ def execute_input_run(run_id: str):
                 "--cp-file",
                 crawl_local,
             ]
+            if go_live_date:
+                command.extend(["--go-live-date", go_live_date])
+                log(run_id, "INFO", f"Using go-live date: {go_live_date}")
         else:
             command = [
                 "python",
@@ -1318,6 +1328,7 @@ def rerun_input(run_id: str, bg: BackgroundTasks, request: Request, user_id: str
             "op_filename": old["op_filename"],
             "ip_filename": old["ip_filename"],
             "master_filename": old["master_filename"],
+            "go_live_date": old.get("go_live_date"),
             "status": "pending",
             "automation_slug": old["automation_slug"]
 
