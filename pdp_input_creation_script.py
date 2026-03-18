@@ -65,6 +65,7 @@ BIZ_ALIASES = {
     "top_sku": ["top_sku", "top sku", "topsku", "top sku flag(yes/ no)", "top sku flag"],
     "brand_input": ["brand_input", "brand input", "brand"],
     "brand_group": ["brand_group", "brand group"],
+    "action": ["action", "instruction", "operation"],
 }
 
 CP_ALIASES = {
@@ -255,6 +256,7 @@ def resolve_business_columns(df: pd.DataFrame):
         "top_sku",
         "brand_input",
         "brand_group",
+        "action",
     ]
     for field in optional_fields:
         cols[field] = resolver.find(BIZ_ALIASES[field])
@@ -428,11 +430,19 @@ def main():
     for opt in opt_names:
         cp_opt[opt] = cp_resolver.find([opt])
 
+    def get_dedupe_key(row):
+        scope = key_norm(row.get(cp_cols["scope_name"], ""))
+        base_id = key_norm(row.get(cp_cols["base_id"], ""))
+        retailer = key_norm(row.get(cp_cols["retailer"], ""))
+        url = strip_generated_id(row.get(cp_cols["url"], ""))
+        return (scope, base_id, retailer, url)
+
     new_rows = []
     skipped_existing = 0
     skipped_invalid = 0
     missing_base_template = 0
     missing_retailer_profile = 0
+    remove_keys = set()
 
     for biz_row in biz_df.to_dict("records"):
         base_id = fetch_business_value(biz_row, biz_cols["base_id"])
@@ -443,6 +453,12 @@ def main():
             scope = fetch_business_value(biz_row, biz_cols["scope_name"])
         else:
             scope = scope_fallback
+
+        action = fetch_business_value(biz_row, biz_cols.get("action")).lower()
+        if action in ["remove", "removal", "delete"]:
+            dedupe_key = (key_norm(scope), key_norm(base_id), key_norm(retailer), strip_generated_id(retailer_url))
+            remove_keys.add(dedupe_key)
+            continue
 
         if not base_id or not retailer or not retailer_url or not scope:
             skipped_invalid += 1
@@ -560,15 +576,18 @@ def main():
         new_rows.append(new_row)
         existing_keys.add(dedupe_key)
 
+    cp_df_filtered = cp_df[~cp_df.apply(lambda row: get_dedupe_key(row) in remove_keys, axis=1)]
+
     output_name = build_output_name(cp_file.name, go_live_dt)
     output_path = output_dir / output_name
 
-    output_df = pd.concat([cp_df, pd.DataFrame(new_rows)], ignore_index=True)
+    output_df = pd.concat([cp_df_filtered, pd.DataFrame(new_rows)], ignore_index=True)
     output_df.to_csv(output_path, sep="\t", index=False, encoding="utf-8")
 
     print("\n=== PDP INPUT CREATION SUMMARY ===")
     print(f"CP rows (original): {len(cp_df)}")
     print(f"Rows added       : {len(new_rows)}")
+    print(f"Rows removed     : {len(remove_keys)}")
     print(f"Rows skipped (existing): {skipped_existing}")
     print(f"Rows skipped (invalid) : {skipped_invalid}")
     print(f"Missing base template rows: {missing_base_template}")
