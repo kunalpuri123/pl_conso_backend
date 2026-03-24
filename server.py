@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks, Depends, Header, HTTPException, Request, status
+from fastapi import FastAPI, BackgroundTasks, Depends, Header, HTTPException, Request, status, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,6 +16,7 @@ import signal
 import hashlib
 import re
 import zipfile
+from pathlib import Path
 
 from pdf_report_generator import generate_pdf_from_ai_report
 from ai_analyzer import analyze_output_with_gemini
@@ -507,9 +508,13 @@ def execute_input_run(run_id: str):
         biz_name = run.get("op_filename")
         crawl_name = run.get("ip_filename")
         master_name = run.get("master_filename")
+        is_url_variation_update = run.get("is_url_variation_update", False)
 
-        if not biz_name or not crawl_name:
-            raise Exception("Missing business/crawl input files in DB")
+        if not crawl_name:
+            raise Exception("Missing crawl input or mapping database file in DB")
+
+        if not biz_name:
+            raise Exception("Missing business input file or mapping database file in DB")
 
         if cfg["requires_master"] and not master_name:
             raise Exception("Missing master template file in DB")
@@ -520,8 +525,15 @@ def execute_input_run(run_id: str):
         output_local = os.path.join(run_dir, "merged_output.xlsx")
         zip_local = os.path.join(run_dir, "all_tsv_files.zip")
 
-        log(run_id, "INFO", f"Business file: {biz_name}")
-        log(run_id, "INFO", f"Crawl file: {crawl_name}")
+        if is_url_variation_update:
+            log(run_id, "INFO", f"Mode: URL & Variation Update")
+            log(run_id, "INFO", f"Mapping database: {biz_name}")
+            log(run_id, "INFO", f"CP input file to update: {crawl_name}")
+        else:
+            log(run_id, "INFO", f"Mode: Normal PDP Input Creation")
+            log(run_id, "INFO", f"Business file: {biz_name}")
+            log(run_id, "INFO", f"Crawl file: {crawl_name}")
+
         if master_name:
             log(run_id, "INFO", f"Master file: {master_name}")
 
@@ -529,17 +541,35 @@ def execute_input_run(run_id: str):
         # -----------------------------
         # 3. download files
         # -----------------------------
-        download_from_storage(
-            cfg["biz_bucket"],
-            biz_name,
-            biz_local
-        )
+        # Download business file only in normal mode
+        if not is_url_variation_update and biz_name:
+            download_from_storage(
+                cfg["biz_bucket"],
+                biz_name,
+                biz_local
+            )
 
-        download_from_storage(
-            cfg["crawl_bucket"],
-            crawl_name,
-            crawl_local
-        )
+        # Download crawl file or mapping database file
+        if is_url_variation_update:
+            # URL & Variation Update mode - download mapping database from mapping bucket
+            download_from_storage(
+                "pdp-input-creation-mapping-db",
+                biz_name,
+                biz_local
+            )
+            # Download CP input file from crawl bucket
+            download_from_storage(
+                cfg["crawl_bucket"],
+                crawl_name,
+                crawl_local
+            )
+        else:
+            # Normal mode - download from crawl bucket
+            download_from_storage(
+                cfg["crawl_bucket"],
+                crawl_name,
+                crawl_local
+            )
 
         if cfg["requires_master"]:
             master_downloaded = False
@@ -569,17 +599,38 @@ def execute_input_run(run_id: str):
                 except ValueError:
                     raise Exception(f"Invalid go_live_date format: {go_live_date}. Expected YYYY-MM-DD")
 
-            command = [
-                "python",
-                "-u",
-                "pdp_input_creation_script.py",
-                "--root",
-                run_dir,
-                "--business-file",
-                biz_local,
-                "--cp-file",
-                crawl_local,
-            ]
+            # Check if this is URL & Variation Update mode
+            is_url_variation_update = run.get("is_url_variation_update", False)
+            
+            if is_url_variation_update:
+                # URL & Variation Update mode - use mapping database and CP input file
+                log(run_id, "INFO", "Running in URL & Variation Update mode")
+                command = [
+                    "python",
+                    "-u",
+                    "pdp_url_variation_update_script.py",
+                    "--root",
+                    run_dir,
+                    "--mapping-file",
+                    biz_local,  # op_filename contains the mapping database file
+                    "--cp-file",
+                    crawl_local,  # ip_filename contains the CP input file to update
+                ]
+            else:
+                # Normal PDP Input Creation mode
+                log(run_id, "INFO", "Running in normal PDP Input Creation mode")
+                command = [
+                    "python",
+                    "-u",
+                    "pdp_input_creation_script.py",
+                    "--root",
+                    run_dir,
+                    "--business-file",
+                    biz_local,
+                    "--cp-file",
+                    crawl_local,
+                ]
+            
             if go_live_date:
                 command.extend(["--go-live-date", go_live_date])
                 log(run_id, "INFO", f"Using go-live date: {go_live_date}")
@@ -1493,6 +1544,39 @@ def delete_run(run_id: str, request: Request, user_id: str = Depends(get_current
     supabase.table("runs").delete().eq("id", run_id).execute()
 
     return {"status": "deleted"}
+
+
+@app.post("/upload-pdp-crawl-input")
+def upload_pdp_crawl_input(file: UploadFile = File(...), user_id: str = Depends(get_current_user_id)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    # Define the directory
+    cp_dir = Path(__file__).resolve().parent / "CP TOOL INPUT"
+    cp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save the file
+    file_path = cp_dir / file.filename
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    return {"status": "uploaded", "filename": file.filename, "path": str(file_path)}
+
+
+@app.post("/create-pdp-input")
+def create_pdp_input(go_live_date: str = "", user_id: str = Depends(get_current_user_id)):
+    # Run the pdp_input_creation_script.py
+    script_path = Path(__file__).resolve().parent / "pdp_input_creation_script.py"
+    cmd = ["python3", str(script_path)]
+    if go_live_date:
+        cmd.extend(["--go-live-date", go_live_date])
+    
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"Script failed: {result.stderr}")
+    
+    return {"status": "created", "output": result.stdout}
+
 
 if __name__ == "__main__":
     import uvicorn

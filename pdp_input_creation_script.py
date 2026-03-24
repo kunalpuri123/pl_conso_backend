@@ -185,6 +185,11 @@ def parse_args():
         default="",
         help="Go-live date for Batch field in YYYY-MM-DD. Defaults to today.",
     )
+    parser.add_argument(
+        "--mapping-file",
+        default="",
+        help="Optional mapping database file path for URL and variation updates.",
+    )
     return parser.parse_args()
 
 
@@ -302,6 +307,88 @@ def fetch_business_value(biz_row, col_name):
     return normalize_text(biz_row.get(col_name, ""))
 
 
+def read_mapping_db(path: Path) -> pd.DataFrame:
+    """Read DB sheet from mapping database file."""
+    try:
+        df = pd.read_excel(path, sheet_name="DB", dtype=str, engine="openpyxl")
+        df.columns = [str(c).strip() for c in df.columns]
+        return df.fillna("")
+    except Exception as e:
+        print(f"Warning: Could not read mapping database: {e}")
+        return None
+
+
+def build_mapping_index(mapping_df, resolver) -> dict:
+    """Build lookup index from (base_id, scope, retailer) to row."""
+    if mapping_df is None or mapping_df.empty:
+        return {}
+    
+    mapping_cols = {}
+    mapping_cols["base_id"] = resolver.find(["base_id"])
+    mapping_cols["scope"] = resolver.find(["scope"])
+    mapping_cols["retailer"] = resolver.find(["retailer"])
+    
+    index = {}
+    for _, row in mapping_df.iterrows():
+        base_id = key_norm(row.get(mapping_cols["base_id"], "")) if mapping_cols["base_id"] else ""
+        scope = key_norm(row.get(mapping_cols["scope"], "")) if mapping_cols["scope"] else ""
+        retailer = key_norm(row.get(mapping_cols["retailer"], "")) if mapping_cols["retailer"] else ""
+        
+        if base_id and scope and retailer:
+            index[(base_id, scope, retailer)] = row
+    
+    return index, mapping_cols
+
+
+def get_mapping_updates(mapping_row, mapping_cols, cp_cols, cp_opt):
+    """Extract URL and variation updates from mapping row."""
+    updates = {}
+    
+    # Check status column
+    status_col = None
+    for col in mapping_row.index:
+        if normalize_name(col) == normalize_name("status"):
+            status_col = col
+            break
+    
+    if status_col is None:
+        return updates
+    
+    status = normalize_text(mapping_row.get(status_col, "")).lower()
+    
+    # Only process if status indicates update
+    if "update" not in status:
+        return updates
+    
+    # Determine what to update
+    update_url = "url" in status and "variation" not in status or ("url" in status and "variation" in status)
+    update_variation = "variation" in status
+    
+    # Get updated values
+    if update_url:
+        for col in mapping_row.index:
+            if normalize_name(col).startswith("updated_url") or col == "Updated URL":
+                updated_url = normalize_text(mapping_row.get(col, ""))
+                if updated_url and not is_na(updated_url):
+                    if cp_cols.get("url"):
+                        updates["url"] = updated_url
+                    break
+    
+    if update_variation:
+        for var_num in [1, 2, 3]:
+            for col in mapping_row.index:
+                col_norm = normalize_name(col)
+                if col_norm == f"updated_variation_{var_num}" or col == f"Updated Variation {var_num}":
+                    updated_var = normalize_text(mapping_row.get(col, ""))
+                    if updated_var and not is_na(updated_var):
+                        cp_col_key = f"variation_{var_num}"
+                        if cp_opt.get(cp_col_key):
+                            updates[cp_col_key] = updated_var
+                    break
+    
+    return updates
+
+
 def main():
     args = parse_args()
     root = Path(args.root).resolve()
@@ -326,6 +413,20 @@ def main():
 
     biz_cols = resolve_business_columns(biz_df)
     cp_resolver, cp_cols = resolve_cp_columns(cp_df)
+
+    # Load mapping database if provided
+    mapping_df = None
+    mapping_index = {}
+    mapping_cols = {}
+    if args.mapping_file:
+        mapping_file = Path(args.mapping_file).resolve()
+        if mapping_file.exists():
+            mapping_df = read_mapping_db(mapping_file)
+            if mapping_df is not None and not mapping_df.empty:
+                mapping_index, mapping_cols = build_mapping_index(mapping_df, cp_resolver)
+                print(f"Mapping file: {mapping_file} ({len(mapping_index)} mappings loaded)")
+        else:
+            print(f"Warning: Mapping file not found: {mapping_file}")
 
     cp_records = cp_df.to_dict("records")
 
@@ -533,6 +634,21 @@ def main():
         set_if_exists(new_row, cp_opt["variation_1"], as_na_or_text(var1))
         set_if_exists(new_row, cp_opt["variation_2"], as_na_or_text(var2))
         set_if_exists(new_row, cp_opt["variation_3"], as_na_or_text(var3))
+
+        # Check mapping database for URL and variation updates
+        if mapping_index:
+            mapping_key = (key_norm(scope), key_norm(base_id), key_norm(retailer))
+            if mapping_key in mapping_index:
+                mapping_row = mapping_index[mapping_key]
+                mapping_updates = get_mapping_updates(mapping_row, mapping_cols, cp_cols, cp_opt)
+                
+                # Apply mapping updates
+                if "url" in mapping_updates and cp_cols.get("url"):
+                    new_row[cp_cols["url"]] = f"{mapping_updates['url']}#id={unique_id}"
+                for var_num in [1, 2, 3]:
+                    var_key = f"variation_{var_num}"
+                    if var_key in mapping_updates and cp_opt.get(var_key):
+                        new_row[cp_opt[var_key]] = mapping_updates[var_key]
 
         # Fixed/default fields from the process.
         set_if_exists(new_row, cp_opt["cookieparam"], "n/a")
